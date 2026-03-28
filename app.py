@@ -1,23 +1,14 @@
 # app.py  –  לוח בקרה ראשי
 import sys, os
-from pathlib import Path
 
-# --- Robust path fix for Streamlit Cloud + local ---
-def _add_root():
-    candidates = [
-        Path(__file__).resolve().parent,           # standard
-        Path(os.path.abspath(__file__)).parent,     # fallback abs
-        Path("/mount/src/family-budget"),           # Streamlit Cloud explicit
-        Path.cwd(),                                 # current working dir
-    ]
-    for p in candidates:
-        if (p / "utils" / "data_manager.py").exists():
-            s = str(p)
-            if s not in sys.path:
-                sys.path.insert(0, s)
-            os.chdir(p)
-            return
-_add_root()
+# Add every possible root to sys.path - works locally + Streamlit Cloud
+for _p in [
+    os.path.dirname(os.path.abspath(__file__)),
+    "/mount/src/family-budget",
+    os.getcwd(),
+]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import streamlit as st
 import pandas as pd
