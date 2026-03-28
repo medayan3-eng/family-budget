@@ -1,0 +1,211 @@
+# pages/3_Expenses.py  –  ניהול הוצאות
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime, date
+
+from utils.data_manager import DataManager
+from utils.constants import EXPENSE_CATEGORIES
+
+st.set_page_config(page_title="הוצאות", page_icon="🧾", layout="wide")
+st.markdown("""
+<style>
+html, body, [class*="css"] { direction: rtl; }
+.stApp { direction: rtl; }
+input, select, textarea { direction: rtl !important; text-align: right !important; }
+#MainMenu, footer { visibility: hidden; }
+.cat-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    background: #1e3a5f;
+    color: white;
+    font-size: 0.8rem;
+    margin: 2px;
+}
+</style>""", unsafe_allow_html=True)
+
+@st.cache_resource
+def get_dm():
+    return DataManager()
+
+dm = get_dm()
+
+MONTH_NAMES = {1:"ינואר",2:"פברואר",3:"מרץ",4:"אפריל",5:"מאי",6:"יוני",
+               7:"יולי",8:"אוגוסט",9:"ספטמבר",10:"אוקטובר",11:"נובמבר",12:"דצמבר"}
+
+st.title("🧾 ניהול הוצאות")
+
+now = datetime.now()
+
+# ── Selectors ─────────────────────────────────────────────────────────────────
+col_y, col_m, col_f = st.columns(3)
+with col_y:
+    sel_year = st.selectbox("שנה", list(range(now.year, now.year - 5, -1)))
+with col_m:
+    sel_month = st.selectbox("חודש", list(range(1, 13)),
+                             format_func=lambda m: MONTH_NAMES[m],
+                             index=now.month - 1)
+with col_f:
+    all_cats = list(EXPENSE_CATEGORIES.keys())
+    filter_cat = st.multiselect("סנן לפי קטגוריה", all_cats,
+                                 placeholder="כל הקטגוריות")
+
+entries = dm.get_expenses(year=sel_year, month=sel_month)
+if filter_cat:
+    entries = [e for e in entries if e.get("category") in filter_cat]
+
+total = sum(e["amount"] for e in entries)
+
+# ── Summary metrics ───────────────────────────────────────────────────────────
+col_t1, col_t2, col_t3 = st.columns(3)
+with col_t1:
+    st.metric(f"סה\"כ הוצאות — {MONTH_NAMES[sel_month]} {sel_year}", f"₪{total:,.0f}")
+with col_t2:
+    if entries:
+        avg = total / len(entries)
+        st.metric("ממוצע להוצאה", f"₪{avg:,.0f}")
+with col_t3:
+    top_cat = ""
+    if entries:
+        cat_d: dict = {}
+        for e in entries:
+            cat_d[e.get("category","")] = cat_d.get(e.get("category",""),0) + e["amount"]
+        top_cat = max(cat_d, key=cat_d.get)
+        st.metric("קטגוריה גדולה ביותר", f"{top_cat}: ₪{cat_d[top_cat]:,.0f}")
+
+# ── Category breakdown ────────────────────────────────────────────────────────
+if entries:
+    cat_totals: dict = {}
+    for e in entries:
+        cat = e.get("category", "📦 שונות")
+        cat_totals[cat] = cat_totals.get(cat, 0) + e["amount"]
+
+    col_pie, col_bar = st.columns(2)
+
+    with col_pie:
+        df_cat = pd.DataFrame(list(cat_totals.items()), columns=["קטגוריה", "סכום"])
+        fig_pie = px.pie(df_cat, values="סכום", names="קטגוריה", hole=0.45,
+                         color_discrete_sequence=px.colors.sequential.Reds_r,
+                         title="פיצול לפי קטגוריה")
+        fig_pie.update_traces(textinfo="percent+label")
+        fig_pie.update_layout(height=320, margin=dict(t=40, b=10),
+                               legend=dict(orientation="h", y=-0.2))
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    with col_bar:
+        df_bar = df_cat.sort_values("סכום", ascending=True)
+        fig_bar = px.bar(df_bar, x="סכום", y="קטגוריה", orientation="h",
+                          color="סכום", color_continuous_scale="Reds",
+                          text="סכום", title="הוצאות לפי קטגוריה")
+        fig_bar.update_traces(texttemplate="₪%{text:,.0f}", textposition="outside")
+        fig_bar.update_layout(height=320, margin=dict(t=40, b=10, r=80),
+                               coloraxis_showscale=False)
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    # ── Detailed table ────────────────────────────────────────────────────────
+    st.subheader("📋 פירוט הוצאות")
+
+    # Group by category
+    for cat, cat_entries in sorted(
+        {c: [e for e in entries if e.get("category") == c] for c in cat_totals}.items(),
+        key=lambda x: sum(e["amount"] for e in x[1]), reverse=True
+    ):
+        cat_sum = sum(e["amount"] for e in cat_entries)
+        with st.expander(f"{cat}  —  ₪{cat_sum:,.0f}  ({len(cat_entries)} רשומות)"):
+            df_sub = pd.DataFrame([{
+                "תאריך":     e.get("date", ""),
+                "תיאור":     e.get("description", ""),
+                "תת-קטגוריה": e.get("sub_category", ""),
+                "סכום":      f"₪{e['amount']:,.0f}",
+                "id":        e.get("id", ""),
+            } for e in sorted(cat_entries, key=lambda x: x.get("date",""), reverse=True)])
+
+            st.dataframe(df_sub.drop(columns=["id"]), use_container_width=True, hide_index=True)
+
+            # Delete from within expander
+            id_opts = {e["id"]: f"{e.get('description','')} — ₪{e['amount']:,.0f}"
+                       for e in cat_entries}
+            del_id = st.selectbox("מחק רשומה:", options=list(id_opts.keys()),
+                                   format_func=lambda x: id_opts[x],
+                                   key=f"del_sel_{cat}")
+            if st.button("מחק", key=f"del_btn_{cat}", type="secondary"):
+                dm.remove_expense(del_id)
+                st.success("נמחק!")
+                st.rerun()
+else:
+    st.info("לא נמצאו הוצאות לחודש זה.")
+
+st.divider()
+
+# ── Add expense form ──────────────────────────────────────────────────────────
+st.subheader("➕ הוספת הוצאה")
+
+with st.form("add_expense", clear_on_submit=True):
+    col1, col2 = st.columns(2)
+
+    with col1:
+        description  = st.text_input("תיאור", placeholder="למשל: קניות סופרמרקט שופרסל")
+        amount       = st.number_input("סכום (₪)", min_value=0.0, step=10.0, format="%.0f")
+        entry_date   = st.date_input("תאריך", value=date.today())
+
+    with col2:
+        category = st.selectbox("קטגוריה ראשית", list(EXPENSE_CATEGORIES.keys()))
+        sub_options  = EXPENSE_CATEGORIES.get(category, ["אחר"])
+        sub_category = st.selectbox("תת-קטגוריה", sub_options)
+        note         = st.text_area("הערות (אופציונלי)", height=68)
+
+    submitted = st.form_submit_button("הוסף הוצאה ✅", type="primary")
+    if submitted:
+        if amount <= 0:
+            st.error("יש להזין סכום חיובי")
+        else:
+            dm.add_expense({
+                "description":  description,
+                "amount":       amount,
+                "category":     category,
+                "sub_category": sub_category,
+                "date":         entry_date.strftime("%Y-%m-%d"),
+                "year":         entry_date.year,
+                "month":        entry_date.month,
+                "note":         note,
+            })
+            st.success(f"הוצאה של ₪{amount:,.0f} נוספה בקטגוריה {category}")
+            st.rerun()
+
+# ── Quick-entry common expenses ───────────────────────────────────────────────
+st.divider()
+st.subheader("⚡ הוספה מהירה — הוצאות קבועות חודשיות")
+
+FIXED_EXPENSES = [
+    ("🏠 שכר דירה",       "🏠 דיור",           "שכר דירה",          0),
+    ("⚡ חשמל",            "🏠 דיור",           "חשמל",               0),
+    ("💧 מים",             "🏠 דיור",           "מים",                0),
+    ("🏛️ ארנונה",          "🏠 דיור",           "ארנונה",             0),
+    ("🌐 אינטרנט/כבלים",   "🏠 דיור",           "אינטרנט",            0),
+]
+
+cols = st.columns(len(FIXED_EXPENSES))
+for i, (label, cat, sub, default_amount) in enumerate(FIXED_EXPENSES):
+    with cols[i]:
+        with st.expander(label):
+            amt = st.number_input("סכום:", min_value=0, step=50, key=f"quick_{i}")
+            if st.button("הוסף", key=f"quick_btn_{i}"):
+                if amt > 0:
+                    dm.add_expense({
+                        "description":  label,
+                        "amount":       amt,
+                        "category":     cat,
+                        "sub_category": sub,
+                        "date":         date(sel_year, sel_month, 1).strftime("%Y-%m-%d"),
+                        "year":         sel_year,
+                        "month":        sel_month,
+                        "note":         "הוספה מהירה",
+                    })
+                    st.success("נוסף!")
+                    st.rerun()
