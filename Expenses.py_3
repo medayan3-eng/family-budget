@@ -1,23 +1,14 @@
 # pages/3_Expenses.py  –  ניהול הוצאות
 import sys, os
-from pathlib import Path
 
-def _add_root():
-    candidates = [
-        Path(__file__).resolve().parent.parent,
-        Path(os.path.abspath(__file__)).parent.parent,
-        Path("/mount/src/family-budget"),
-        Path.cwd(),
-        Path.cwd().parent,
-    ]
-    for p in candidates:
-        if (p / "utils" / "data_manager.py").exists():
-            s = str(p)
-            if s not in sys.path:
-                sys.path.insert(0, s)
-            os.chdir(p)
-            return
-_add_root()
+for _p in [
+    os.path.dirname(os.path.abspath(__file__)),
+    "/mount/src/family-budget",
+    os.getcwd(),
+    os.path.dirname(os.getcwd()),
+]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import streamlit as st
 import pandas as pd
