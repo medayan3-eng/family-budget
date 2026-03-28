@@ -177,6 +177,8 @@ html,body,[class*="css"]{direction:rtl;}
 .stApp,.block-container,section[data-testid="stSidebar"]{direction:rtl;}
 input,textarea,select{direction:rtl!important;text-align:right!important;}
 #MainMenu,footer{visibility:hidden;}
+section[data-testid="stSidebar"]{display:none!important;}
+[data-testid="collapsedControl"]{display:none!important;}
 </style>"""
 
 import streamlit as st
@@ -206,6 +208,24 @@ with st.sidebar:
 
 st.title("💰 תוכנית חיסכון משפחתית")
 st.caption(f"לוח בקרה | {MONTH_NAMES[month]} {year}")
+
+# ── Mobile navigation ─────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+.nav-btn a {
+    display:block; text-align:center; background:#1e3a5f; color:white!important;
+    padding:14px 8px; border-radius:12px; font-size:1.1rem; font-weight:600;
+    text-decoration:none; margin:4px 0;
+}
+.nav-btn a:hover { background:#2d5a9e; }
+</style>""", unsafe_allow_html=True)
+
+nav1, nav2, nav3, nav4 = st.columns(4)
+with nav1: st.page_link("pages/1_Investments.py", label="📈 השקעות", use_container_width=True)
+with nav2: st.page_link("pages/2_Income.py",      label="💵 הכנסות",  use_container_width=True)
+with nav3: st.page_link("pages/3_Expenses.py",    label="🧾 הוצאות",  use_container_width=True)
+with nav4: st.page_link("pages/4_Analysis.py",    label="📊 ניתוח",   use_container_width=True)
+st.divider()
 
 with st.spinner("טוען..."):
     investments = get_investments()
