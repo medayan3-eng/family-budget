@@ -191,13 +191,18 @@ st.set_page_config(page_title="ניתוח", page_icon="📊", layout="wide")
 st.markdown(RTL, unsafe_allow_html=True)
 st.title("📊 ניתוח וסיכום")
 
-# ── Mobile navigation ─────────────────────────────────────────────────────────
-nav1, nav2, nav3, nav4 = st.columns(4)
-with nav1: st.page_link("app.py",                  label="🏠 ראשי",    use_container_width=True)
-with nav2: st.page_link("pages/1_Investments.py",  label="📈 השקעות",  use_container_width=True)
-with nav3: st.page_link("pages/2_Income.py",       label="💵 הכנסות",  use_container_width=True)
-with nav4: st.page_link("pages/3_Expenses.py",     label="🧾 הוצאות",  use_container_width=True)
+
+n1,n2,n3,n4 = st.columns(4)
+with n1:
+    if st.button("🏠 ראשי",    use_container_width=True): st.switch_page("app.py")
+with n2:
+    if st.button("📈 השקעות",  use_container_width=True): st.switch_page("pages/1_Investments.py")
+with n3:
+    if st.button("💵 הכנסות",  use_container_width=True): st.switch_page("pages/2_Income.py")
+with n4:
+    if st.button("🧾 הוצאות",  use_container_width=True): st.switch_page("pages/3_Expenses.py")
 st.divider()
+
 
 
 all_ym = get_all_years_months()
