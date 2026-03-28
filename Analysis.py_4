@@ -177,6 +177,8 @@ html,body,[class*="css"]{direction:rtl;}
 .stApp,.block-container,section[data-testid="stSidebar"]{direction:rtl;}
 input,textarea,select{direction:rtl!important;text-align:right!important;}
 #MainMenu,footer{visibility:hidden;}
+section[data-testid="stSidebar"]{display:none!important;}
+[data-testid="collapsedControl"]{display:none!important;}
 </style>"""
 
 import streamlit as st
@@ -188,6 +190,15 @@ from datetime import datetime
 st.set_page_config(page_title="ניתוח", page_icon="📊", layout="wide")
 st.markdown(RTL, unsafe_allow_html=True)
 st.title("📊 ניתוח וסיכום")
+
+# ── Mobile navigation ─────────────────────────────────────────────────────────
+nav1, nav2, nav3, nav4 = st.columns(4)
+with nav1: st.page_link("app.py",                  label="🏠 ראשי",    use_container_width=True)
+with nav2: st.page_link("pages/1_Investments.py",  label="📈 השקעות",  use_container_width=True)
+with nav3: st.page_link("pages/2_Income.py",       label="💵 הכנסות",  use_container_width=True)
+with nav4: st.page_link("pages/3_Expenses.py",     label="🧾 הוצאות",  use_container_width=True)
+st.divider()
+
 
 all_ym = get_all_years_months()
 if not all_ym:
