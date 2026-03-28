@@ -5,8 +5,18 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-DATA_DIR = Path(__file__).parent.parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
+# On Streamlit Cloud the repo is mounted read-only.
+# Use /tmp for writable storage; fall back to local data/ for local dev.
+_local_data = Path(__file__).parent.parent / "data"
+try:
+    _local_data.mkdir(parents=True, exist_ok=True)
+    _test = _local_data / ".write_test"
+    _test.write_text("ok")
+    _test.unlink()
+    DATA_DIR = _local_data
+except OSError:
+    DATA_DIR = Path("/tmp/family_budget_data")
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class DataManager:
