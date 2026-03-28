@@ -1,14 +1,183 @@
-# pages/4_Analysis.py  –  ניתוח וסיכום
-import sys, os
+# ── SHARED: constants ────────────────────────────────────────────────────────
+EXPENSE_CATEGORIES = {
+    "🏠 דיור": ["שכר דירה","ארנונה","חשמל","מים","גז","ועד בית","אינטרנט","כבלים/OTT","תיקונים","ריהוט"],
+    "🛒 מזון": ["סופרמרקט","מסעדות","בתי קפה","משלוחים","שוק/ירקן"],
+    "👶 תינוקת": ["חיתולים","ביגוד לתינוקת","צעצועים","רפואה לתינוקת","מטפלת/מעון","שונות"],
+    "🚗 תחבורה": ["דלק","ביטוח רכב","טיפול רכב","חניה ודוחות","תחבורה ציבורית","מוניות"],
+    "👕 ביגוד": ["ביגוד - אישה","ביגוד - גבר","נעליים","אביזרים"],
+    "💊 בריאות": ["תרופות","רופא/מרפאה","ביטוח משלים","אופטיקה","דנטיסט","פיזיותרפיה"],
+    "🎬 פנאי": ["בילויים","נסיעות","ספורט","קולנוע","מנויים"],
+    "📚 חינוך": ["קורסים","ספרים","לימודים"],
+    "🎁 מתנות": ["מתנות","אירועים","תרומות"],
+    "📦 שונות": ["ניקיון","היגיינה","קניות כלליות","אחר"],
+}
+INCOME_CATEGORIES = ["💼 משכורת","🤱 דמי לידה / ביטוח לאומי","🎯 בונוס","📈 הכנסה פסיבית","🏠 הכנסה מנכס","💰 אחר"]
+ASSET_TYPES = {"us_stock":"📈 מניה אמריקאית","tase_stock":"🇮🇱 מניה ישראלית","israeli_fund":"📊 קרן נאמנות","manual":"✏️ ידני"}
+MONTH_NAMES = {1:"ינואר",2:"פברואר",3:"מרץ",4:"אפריל",5:"מאי",6:"יוני",7:"יולי",8:"אוגוסט",9:"ספטמבר",10:"אוקטובר",11:"נובמבר",12:"דצמבר"}
 
-for _p in [
-    os.path.dirname(os.path.abspath(__file__)),
-    "/mount/src/family-budget",
-    os.getcwd(),
-    os.path.dirname(os.getcwd()),
-]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+# ── SHARED: DataManager ───────────────────────────────────────────────────────
+import json, uuid, os
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, List
+
+def _get_data_dir():
+    # Try writable locations in order
+    for candidate in [
+        Path(os.environ.get("HOME", "/tmp")) / "family_budget_data",
+        Path("/tmp/family_budget_data"),
+    ]:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            test = candidate / ".test"
+            test.write_text("ok"); test.unlink()
+            return candidate
+        except Exception:
+            continue
+    return Path("/tmp/family_budget_data")
+
+_DATA_DIR = _get_data_dir()
+
+def _load_file(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def _save_file(path: Path, data: dict):
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def _init(path: Path, default: dict):
+    if not path.exists():
+        _save_file(path, default)
+
+_PORTFOLIO = _DATA_DIR / "portfolio.json"
+_INCOME    = _DATA_DIR / "income.json"
+_EXPENSES  = _DATA_DIR / "expenses.json"
+_CACHE     = _DATA_DIR / "prices_cache.json"
+for _f, _d in [(_PORTFOLIO,{"investments":[]}),(_INCOME,{"entries":[]}),(_EXPENSES,{"entries":[]}),(_CACHE,{"prices":{},"updated":{}})]:
+    _init(_f, _d)
+
+def get_investments():
+    return _load_file(_PORTFOLIO).get("investments", [])
+
+def add_investment(inv: dict):
+    data = _load_file(_PORTFOLIO)
+    inv["id"] = str(uuid.uuid4()); inv["added_date"] = datetime.now().isoformat()
+    data.setdefault("investments",[]).append(inv)
+    _save_file(_PORTFOLIO, data)
+
+def remove_investment(inv_id: str):
+    data = _load_file(_PORTFOLIO)
+    data["investments"] = [i for i in data.get("investments",[]) if i["id"] != inv_id]
+    _save_file(_PORTFOLIO, data)
+
+def get_income(year=None, month=None):
+    e = _load_file(_INCOME).get("entries", [])
+    if year:  e = [x for x in e if x.get("year")  == year]
+    if month: e = [x for x in e if x.get("month") == month]
+    return e
+
+def add_income(entry: dict):
+    data = _load_file(_INCOME); entry["id"] = str(uuid.uuid4())
+    data.setdefault("entries",[]).append(entry); _save_file(_INCOME, data)
+
+def remove_income(eid: str):
+    data = _load_file(_INCOME)
+    data["entries"] = [e for e in data.get("entries",[]) if e.get("id") != eid]
+    _save_file(_INCOME, data)
+
+def get_expenses(year=None, month=None):
+    e = _load_file(_EXPENSES).get("entries", [])
+    if year:  e = [x for x in e if x.get("year")  == year]
+    if month: e = [x for x in e if x.get("month") == month]
+    return e
+
+def add_expense(entry: dict):
+    data = _load_file(_EXPENSES); entry["id"] = str(uuid.uuid4())
+    data.setdefault("entries",[]).append(entry); _save_file(_EXPENSES, data)
+
+def remove_expense(eid: str):
+    data = _load_file(_EXPENSES)
+    data["entries"] = [e for e in data.get("entries",[]) if e.get("id") != eid]
+    _save_file(_EXPENSES, data)
+
+def get_all_years_months():
+    inc = _load_file(_INCOME).get("entries",[])
+    exp = _load_file(_EXPENSES).get("entries",[])
+    ym = set()
+    for e in inc + exp:
+        if "year" in e and "month" in e: ym.add((e["year"], e["month"]))
+    return sorted(ym, reverse=True)
+
+def is_price_fresh(key: str) -> bool:
+    cache = _load_file(_CACHE)
+    p = cache.get("prices",{}).get(key)
+    return bool(p and p.get("date") == datetime.now().strftime("%Y-%m-%d"))
+
+def get_cached_price(key: str):
+    return _load_file(_CACHE).get("prices",{}).get(key)
+
+def set_cached_price(key: str, price_data: dict):
+    cache = _load_file(_CACHE)
+    cache.setdefault("prices",{})[key] = price_data
+    cache.setdefault("updated",{})[key] = datetime.now().isoformat()
+    _save_file(_CACHE, cache)
+
+# ── SHARED: Price fetcher ─────────────────────────────────────────────────────
+def get_usd_ils_rate() -> float:
+    try:
+        import yfinance as yf
+        h = yf.Ticker("USDILS=X").history(period="2d")
+        if not h.empty: return float(h["Close"].iloc[-1])
+    except Exception: pass
+    return 3.72
+
+def _yf_price(ticker: str):
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker); h = t.history(period="5d")
+        if h.empty: return None
+        px = float(h["Close"].iloc[-1]); prev = float(h["Close"].iloc[-2]) if len(h)>1 else px
+        ch = px - prev; chp = (ch/prev*100) if prev else 0
+        info = t.info
+        return {"price":round(px,4),"change":round(ch,4),"change_pct":round(chp,2),
+                "currency":info.get("currency","USD"),
+                "name":info.get("longName") or info.get("shortName") or ticker,
+                "source":"yfinance","date":h.index[-1].strftime("%Y-%m-%d")}
+    except Exception: return None
+
+def fetch_price(inv: dict):
+    t = inv.get("type","us_stock")
+    if t == "us_stock":   return _yf_price(inv["ticker"])
+    if t == "tase_stock": return _yf_price(inv["ticker"].upper().replace(".TA","") + ".TA")
+    if t == "israeli_fund":
+        r = _yf_price(inv.get("fund_id","") + ".TA")
+        if r: r["currency"] = "ILS"; return r
+        return None
+    return {"price":float(inv.get("manual_price",0)),"change":0.0,"change_pct":0.0,
+            "currency":inv.get("currency","ILS"),"name":inv.get("name","ידני"),
+            "source":"manual","date":datetime.now().strftime("%Y-%m-%d")}
+
+def fetch_all_prices(investments: list) -> dict:
+    prices = {}
+    for inv in investments:
+        key = inv.get("ticker") or inv.get("fund_id") or inv["id"]
+        if is_price_fresh(key):
+            prices[inv["id"]] = get_cached_price(key); continue
+        pd_ = fetch_price(inv)
+        if pd_: set_cached_price(key, pd_); prices[inv["id"]] = pd_
+        else:
+            stale = get_cached_price(key)
+            if stale: stale["stale"] = True; prices[inv["id"]] = stale
+    return prices
+
+RTL = """<style>
+html,body,[class*="css"]{direction:rtl;}
+.stApp,.block-container,section[data-testid="stSidebar"]{direction:rtl;}
+input,textarea,select{direction:rtl!important;text-align:right!important;}
+#MainMenu,footer{visibility:hidden;}
+</style>"""
 
 import streamlit as st
 import pandas as pd
@@ -16,245 +185,112 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 
-from utils.data_manager import DataManager
-from utils.price_fetcher import fetch_all_prices, get_usd_ils_rate
-
 st.set_page_config(page_title="ניתוח", page_icon="📊", layout="wide")
-st.markdown("""
-<style>
-html, body, [class*="css"] { direction: rtl; }
-.stApp { direction: rtl; }
-input, select { direction: rtl !important; }
-#MainMenu, footer { visibility: hidden; }
-.insight-box {
-    background: linear-gradient(135deg,#0d2137,#1e3a5f);
-    border-radius: 12px; padding: 16px 20px; color: white; margin: 8px 0;
-}
-.insight-box .title { font-size: 1rem; opacity: 0.75; }
-.insight-box .body  { font-size: 1.2rem; font-weight: 600; margin-top: 4px; }
-</style>""", unsafe_allow_html=True)
-
-@st.cache_resource
-def get_dm():
-    return DataManager()
-
-dm  = get_dm()
-now = datetime.now()
-
-MONTH_NAMES = {1:"ינואר",2:"פברואר",3:"מרץ",4:"אפריל",5:"מאי",6:"יוני",
-               7:"יולי",8:"אוגוסט",9:"ספטמבר",10:"אוקטובר",11:"נובמבר",12:"דצמבר"}
-
+st.markdown(RTL, unsafe_allow_html=True)
 st.title("📊 ניתוח וסיכום")
 
-# ── All-time data ─────────────────────────────────────────────────────────────
-all_ym = dm.get_all_years_months()
+all_ym = get_all_years_months()
 if not all_ym:
-    st.info("אין עדיין נתונים לניתוח. הוסף הכנסות והוצאות תחילה.")
+    st.info("אין עדיין נתונים לניתוח.")
     st.stop()
 
-# Build monthly summary table
 rows = []
-for y, m in sorted(all_ym):
-    inc = dm.get_income(year=y, month=m)
-    exp = dm.get_expenses(year=y, month=m)
-    total_inc = sum(e["amount"] for e in inc)
-    total_exp = sum(e["amount"] for e in exp)
-    saving     = total_inc - total_exp
-    save_rate  = (saving / total_inc * 100) if total_inc else 0
-    rows.append({
-        "year": y, "month": m,
-        "label": f"{MONTH_NAMES[m][:3]} {y}",
-        "הכנסות": total_inc,
-        "הוצאות": total_exp,
-        "חיסכון": saving,
-        "שיעור חיסכון": round(save_rate, 1),
-    })
+for y,m in sorted(all_ym):
+    inc = sum(e["amount"] for e in get_income(year=y,month=m))
+    exp = sum(e["amount"] for e in get_expenses(year=y,month=m))
+    sav = inc - exp
+    rows.append({"year":y,"month":m,"label":f"{MONTH_NAMES[m][:3]} {y}",
+                 "הכנסות":inc,"הוצאות":exp,"חיסכון":sav,
+                 "שיעור חיסכון":round((sav/inc*100) if inc else 0,1)})
+df_m = pd.DataFrame(rows)
 
-df_monthly = pd.DataFrame(rows)
-
-# ── KPI summary ───────────────────────────────────────────────────────────────
 st.subheader("📌 סיכום כולל")
+c1,c2,c3,c4 = st.columns(4)
+c1.metric("סה\"כ הכנסות", f"₪{df_m['הכנסות'].sum():,.0f}")
+c2.metric("סה\"כ הוצאות", f"₪{df_m['הוצאות'].sum():,.0f}")
+net = df_m['הכנסות'].sum()-df_m['הוצאות'].sum()
+c3.metric("חיסכון נצבר", f"₪{net:,.0f}", "✅" if net>=0 else "⚠️")
+c4.metric("שיעור חיסכון ממוצע", f"{df_m['שיעור חיסכון'].mean():.1f}%")
 
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    total_inc_all = df_monthly["הכנסות"].sum()
-    st.metric("סה\"כ הכנסות (היסטוריה)", f"₪{total_inc_all:,.0f}")
-with c2:
-    total_exp_all = df_monthly["הוצאות"].sum()
-    st.metric("סה\"כ הוצאות (היסטוריה)", f"₪{total_exp_all:,.0f}")
-with c3:
-    net = total_inc_all - total_exp_all
-    st.metric("חיסכון נצבר (מזומן)", f"₪{net:,.0f}",
-              delta="חיובי ✅" if net >= 0 else "שלילי ⚠️")
-with c4:
-    avg_rate = df_monthly["שיעור חיסכון"].mean()
-    st.metric("שיעור חיסכון ממוצע", f"{avg_rate:.1f}%")
-
-# ── Investment portfolio ──────────────────────────────────────────────────────
-investments = dm.get_investments()
+investments = get_investments()
 if investments:
-    with st.spinner("מושך מחירי השקעות..."):
+    with st.spinner("מושך מחירים..."):
         usd_ils = get_usd_ils_rate()
-        prices  = fetch_all_prices(investments, dm)
-
-    total_val  = 0.0
-    total_cost = 0.0
+        prices = fetch_all_prices(investments)
+    tv = tc = 0.0
     for inv in investments:
         pd_ = prices.get(inv["id"])
-        if not pd_:
-            continue
-        units  = float(inv.get("units", 0))
-        mul    = usd_ils if pd_.get("currency") == "USD" else 1.0
-        total_val  += float(pd_["price"]) * units * mul
-        total_cost += float(inv.get("purchase_price", 0)) * units * mul
-
-    gain     = total_val - total_cost
-    gain_pct = (gain / total_cost * 100) if total_cost else 0
-
+        if not pd_: continue
+        units=float(inv.get("units",0)); mul=usd_ils if pd_.get("currency")=="USD" else 1.0
+        tv += float(pd_["price"])*units*mul
+        tc += float(inv.get("purchase_price",0))*units*mul
+    gain=tv-tc; gp=(gain/tc*100) if tc else 0
     st.subheader("💼 תיק השקעות")
-    ci1, ci2, ci3 = st.columns(3)
-    with ci1:
-        st.metric("שווי תיק נוכחי", f"₪{total_val:,.0f}")
-    with ci2:
-        st.metric("עלות רכישה כוללת", f"₪{total_cost:,.0f}")
-    with ci3:
-        st.metric("רווח/הפסד",
-                  f"₪{gain:,.0f}",
-                  delta=f"{gain_pct:+.1f}%",
-                  delta_color="normal")
+    ci1,ci2,ci3 = st.columns(3)
+    ci1.metric("שווי נוכחי", f"₪{tv:,.0f}")
+    ci2.metric("עלות רכישה", f"₪{tc:,.0f}")
+    ci3.metric("רווח/הפסד", f"₪{gain:,.0f}", f"{gp:+.1f}%")
 
 st.divider()
+st.subheader("📈 הכנסות מול הוצאות")
+fig = go.Figure()
+fig.add_bar(x=df_m["label"],y=df_m["הכנסות"],name="הכנסות",marker_color="#3b82f6",opacity=0.85)
+fig.add_bar(x=df_m["label"],y=df_m["הוצאות"],name="הוצאות",marker_color="#ef4444",opacity=0.85)
+fig.add_scatter(x=df_m["label"],y=df_m["חיסכון"],name="חיסכון",mode="lines+markers",
+               line=dict(color="#22c55e",width=2.5),marker=dict(size=8))
+fig.update_layout(barmode="group",height=350,legend=dict(orientation="h",y=1.1))
+st.plotly_chart(fig, use_container_width=True)
 
-# ── Income vs Expenses chart ──────────────────────────────────────────────────
-st.subheader("📈 הכנסות מול הוצאות לאורך זמן")
+fig2 = px.area(df_m, x="label", y="שיעור חיסכון", color_discrete_sequence=["#22c55e"],
+               title="שיעור חיסכון %")
+fig2.add_hline(y=20, line_dash="dash", line_color="#f59e0b",
+               annotation_text="יעד 20%", annotation_position="left")
+fig2.update_layout(height=250)
+st.plotly_chart(fig2, use_container_width=True)
 
-fig_main = go.Figure()
-fig_main.add_bar(x=df_monthly["label"], y=df_monthly["הכנסות"],
-                 name="הכנסות", marker_color="#3b82f6", opacity=0.85)
-fig_main.add_bar(x=df_monthly["label"], y=df_monthly["הוצאות"],
-                 name="הוצאות", marker_color="#ef4444", opacity=0.85)
-fig_main.add_scatter(x=df_monthly["label"], y=df_monthly["חיסכון"],
-                     name="חיסכון נטו", mode="lines+markers",
-                     line=dict(color="#22c55e", width=2.5),
-                     marker=dict(size=8))
-fig_main.update_layout(
-    barmode="group", height=380,
-    legend=dict(orientation="h", y=1.08),
-    margin=dict(t=30, b=20),
-    yaxis_title="₪",
-)
-st.plotly_chart(fig_main, use_container_width=True)
-
-# ── Savings rate trend ────────────────────────────────────────────────────────
-st.subheader("💰 שיעור חיסכון חודשי")
-fig_rate = px.area(
-    df_monthly, x="label", y="שיעור חיסכון",
-    color_discrete_sequence=["#22c55e"],
-    title="שיעור חיסכון % לאורך זמן",
-)
-fig_rate.add_hline(y=20, line_dash="dash", line_color="#f59e0b",
-                   annotation_text="יעד 20%", annotation_position="left")
-fig_rate.update_layout(height=280, margin=dict(t=40, b=20), yaxis_title="%")
-st.plotly_chart(fig_rate, use_container_width=True)
-
-# ── Category analysis ─────────────────────────────────────────────────────────
-st.subheader("🗂️ ניתוח הוצאות לפי קטגוריה")
-
-all_exp = dm.get_expenses()
+all_exp = get_expenses()
 if all_exp:
-    cat_df = pd.DataFrame([{
-        "קטגוריה": e.get("category", "אחר"),
-        "סכום":    e["amount"],
-        "חודש":    f"{MONTH_NAMES.get(e.get('month',1),'')} {e.get('year','')}",
-    } for e in all_exp])
+    st.subheader("🗂️ ניתוח קטגוריות")
+    cat_df = pd.DataFrame([{"קטגוריה":e.get("category","אחר"),"סכום":e["amount"]} for e in all_exp])
+    cat_tot = cat_df.groupby("קטגוריה")["סכום"].sum().reset_index().sort_values("סכום",ascending=False)
+    fig3 = px.bar(cat_tot, x="קטגוריה", y="סכום", color="סכום",
+                  color_continuous_scale="Blues", text="סכום")
+    fig3.update_traces(texttemplate="₪%{text:,.0f}", textposition="outside")
+    fig3.update_layout(height=350, coloraxis_showscale=False, xaxis_tickangle=-30)
+    st.plotly_chart(fig3, use_container_width=True)
 
-    col_hm, col_top = st.columns(2)
-
-    with col_hm:
-        # Total by category all-time
-        cat_total = cat_df.groupby("קטגוריה")["סכום"].sum().reset_index()
-        cat_total = cat_total.sort_values("סכום", ascending=False)
-        fig_cat = px.bar(
-            cat_total, x="קטגוריה", y="סכום",
-            color="סכום", color_continuous_scale="Blues",
-            title="סה\"כ הוצאות לפי קטגוריה (כל הזמנים)",
-            text="סכום",
-        )
-        fig_cat.update_traces(texttemplate="₪%{text:,.0f}", textposition="outside")
-        fig_cat.update_layout(height=360, coloraxis_showscale=False,
-                               xaxis_tickangle=-30, margin=dict(t=40,b=60))
-        st.plotly_chart(fig_cat, use_container_width=True)
-
-    with col_top:
-        # Category trend over months (stacked)
-        pivot = cat_df.pivot_table(index="חודש", columns="קטגוריה",
-                                    values="סכום", aggfunc="sum", fill_value=0)
-        fig_stack = px.bar(
-            pivot.reset_index(), x="חודש", y=pivot.columns.tolist(),
-            title="הוצאות חודשיות — פיצול לפי קטגוריה",
-            color_discrete_sequence=px.colors.qualitative.Set3,
-        )
-        fig_stack.update_layout(height=360, barmode="stack",
-                                 legend=dict(orientation="h", y=-0.25,font_size=10),
-                                 margin=dict(t=40, b=100))
-        st.plotly_chart(fig_stack, use_container_width=True)
-
-# ── Smart insights ────────────────────────────────────────────────────────────
+st.divider()
 st.subheader("💡 תובנות")
-
-insights = []
-
-# Savings rate
+avg_rate = df_m["שיעור חיסכון"].mean()
 if avg_rate < 10:
-    insights.append(("⚠️ שיעור חיסכון נמוך",
-                      f"שיעור החיסכון הממוצע שלך הוא {avg_rate:.1f}%. מומלץ לשאוף ל-20% לפחות."))
+    st.warning(f"⚠️ שיעור החיסכון הממוצע {avg_rate:.1f}% נמוך מדי. מומלץ לשאוף ל-20%.")
 elif avg_rate >= 20:
-    insights.append(("✅ שיעור חיסכון מצוין",
-                      f"שיעור החיסכון הממוצע שלך הוא {avg_rate:.1f}% — כל הכבוד!"))
+    st.success(f"✅ שיעור חיסכון ממוצע {avg_rate:.1f}% — מצוין!")
 else:
-    insights.append(("📊 שיעור חיסכון סביר",
-                      f"שיעור החיסכון הממוצע שלך הוא {avg_rate:.1f}%. אפשר לשפר לכיוון 20%."))
+    st.info(f"📊 שיעור חיסכון {avg_rate:.1f}% — אפשר לשפר לכיוון 20%.")
 
-# Biggest expense category
-if all_exp:
-    top_cat_row = cat_total.iloc[0]
-    insights.append(("📌 ההוצאה הגדולה ביותר",
-                      f"הקטגוריה {top_cat_row['קטגוריה']} היא הגדולה ביותר: ₪{top_cat_row['סכום']:,.0f} סה\"כ"))
+if all_exp and len(cat_tot):
+    top_row = cat_tot.iloc[0]
+    st.info(f"📌 ההוצאה הגדולה ביותר: {top_row['קטגוריה']} — ₪{top_row['סכום']:,.0f}")
 
-# Last month vs average
-if len(df_monthly) >= 2:
-    last_exp  = df_monthly["הוצאות"].iloc[-1]
-    avg_exp   = df_monthly["הוצאות"].mean()
-    diff_pct  = (last_exp - avg_exp) / avg_exp * 100
+if len(df_m) >= 2:
+    last_exp = df_m["הוצאות"].iloc[-1]
+    avg_exp  = df_m["הוצאות"].mean()
+    diff_pct = (last_exp-avg_exp)/avg_exp*100 if avg_exp else 0
     if diff_pct > 15:
-        insights.append(("📈 הוצאות גבוהות החודש",
-                          f"הוצאות החודש (₪{last_exp:,.0f}) גבוהות ב-{diff_pct:.0f}% מהממוצע (₪{avg_exp:,.0f})"))
+        st.warning(f"📈 הוצאות החודש גבוהות ב-{diff_pct:.0f}% מהממוצע (₪{last_exp:,.0f} vs ₪{avg_exp:,.0f})")
     elif diff_pct < -15:
-        insights.append(("📉 הוצאות נמוכות החודש",
-                          f"הוצאות החודש (₪{last_exp:,.0f}) נמוכות ב-{abs(diff_pct):.0f}% מהממוצע. כל הכבוד!"))
+        st.success(f"📉 הוצאות החודש נמוכות ב-{abs(diff_pct):.0f}% מהממוצע. כל הכבוד!")
 
-for title, body in insights:
-    st.markdown(f"""
-    <div class="insight-box">
-        <div class="title">{title}</div>
-        <div class="body">{body}</div>
-    </div>""", unsafe_allow_html=True)
-
-# ── Raw data export ───────────────────────────────────────────────────────────
 st.divider()
 st.subheader("📥 ייצוא נתונים")
-
-col_exp, col_inc = st.columns(2)
-with col_exp:
+ce, ci = st.columns(2)
+with ce:
     if all_exp:
-        df_exp_export = pd.DataFrame(all_exp).drop(columns=["id"], errors="ignore")
-        csv = df_exp_export.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("⬇️ ייצא הוצאות (CSV)", csv,
-                            file_name="expenses.csv", mime="text/csv")
-with col_inc:
-    all_inc = dm.get_income()
+        csv = pd.DataFrame(all_exp).drop(columns=["id"],errors="ignore").to_csv(index=False).encode("utf-8-sig")
+        st.download_button("⬇️ ייצא הוצאות (CSV)", csv, file_name="expenses.csv", mime="text/csv")
+with ci:
+    all_inc = get_income()
     if all_inc:
-        df_inc_export = pd.DataFrame(all_inc).drop(columns=["id"], errors="ignore")
-        csv2 = df_inc_export.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("⬇️ ייצא הכנסות (CSV)", csv2,
-                            file_name="income.csv", mime="text/csv")
+        csv2 = pd.DataFrame(all_inc).drop(columns=["id"],errors="ignore").to_csv(index=False).encode("utf-8-sig")
+        st.download_button("⬇️ ייצא הכנסות (CSV)", csv2, file_name="income.csv", mime="text/csv")
