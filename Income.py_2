@@ -1,192 +1,264 @@
-# pages/2_Income.py  –  ניהול הכנסות
-import sys, os
+# ── SHARED: constants ────────────────────────────────────────────────────────
+EXPENSE_CATEGORIES = {
+    "🏠 דיור": ["שכר דירה","ארנונה","חשמל","מים","גז","ועד בית","אינטרנט","כבלים/OTT","תיקונים","ריהוט"],
+    "🛒 מזון": ["סופרמרקט","מסעדות","בתי קפה","משלוחים","שוק/ירקן"],
+    "👶 תינוקת": ["חיתולים","ביגוד לתינוקת","צעצועים","רפואה לתינוקת","מטפלת/מעון","שונות"],
+    "🚗 תחבורה": ["דלק","ביטוח רכב","טיפול רכב","חניה ודוחות","תחבורה ציבורית","מוניות"],
+    "👕 ביגוד": ["ביגוד - אישה","ביגוד - גבר","נעליים","אביזרים"],
+    "💊 בריאות": ["תרופות","רופא/מרפאה","ביטוח משלים","אופטיקה","דנטיסט","פיזיותרפיה"],
+    "🎬 פנאי": ["בילויים","נסיעות","ספורט","קולנוע","מנויים"],
+    "📚 חינוך": ["קורסים","ספרים","לימודים"],
+    "🎁 מתנות": ["מתנות","אירועים","תרומות"],
+    "📦 שונות": ["ניקיון","היגיינה","קניות כלליות","אחר"],
+}
+INCOME_CATEGORIES = ["💼 משכורת","🤱 דמי לידה / ביטוח לאומי","🎯 בונוס","📈 הכנסה פסיבית","🏠 הכנסה מנכס","💰 אחר"]
+ASSET_TYPES = {"us_stock":"📈 מניה אמריקאית","tase_stock":"🇮🇱 מניה ישראלית","israeli_fund":"📊 קרן נאמנות","manual":"✏️ ידני"}
+MONTH_NAMES = {1:"ינואר",2:"פברואר",3:"מרץ",4:"אפריל",5:"מאי",6:"יוני",7:"יולי",8:"אוגוסט",9:"ספטמבר",10:"אוקטובר",11:"נובמבר",12:"דצמבר"}
 
-for _p in [
-    os.path.dirname(os.path.abspath(__file__)),
-    "/mount/src/family-budget",
-    os.getcwd(),
-    os.path.dirname(os.getcwd()),
-]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+# ── SHARED: DataManager ───────────────────────────────────────────────────────
+import json, uuid, os
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, List
+
+def _get_data_dir():
+    # Try writable locations in order
+    for candidate in [
+        Path(os.environ.get("HOME", "/tmp")) / "family_budget_data",
+        Path("/tmp/family_budget_data"),
+    ]:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            test = candidate / ".test"
+            test.write_text("ok"); test.unlink()
+            return candidate
+        except Exception:
+            continue
+    return Path("/tmp/family_budget_data")
+
+_DATA_DIR = _get_data_dir()
+
+def _load_file(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def _save_file(path: Path, data: dict):
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def _init(path: Path, default: dict):
+    if not path.exists():
+        _save_file(path, default)
+
+_PORTFOLIO = _DATA_DIR / "portfolio.json"
+_INCOME    = _DATA_DIR / "income.json"
+_EXPENSES  = _DATA_DIR / "expenses.json"
+_CACHE     = _DATA_DIR / "prices_cache.json"
+for _f, _d in [(_PORTFOLIO,{"investments":[]}),(_INCOME,{"entries":[]}),(_EXPENSES,{"entries":[]}),(_CACHE,{"prices":{},"updated":{}})]:
+    _init(_f, _d)
+
+def get_investments():
+    return _load_file(_PORTFOLIO).get("investments", [])
+
+def add_investment(inv: dict):
+    data = _load_file(_PORTFOLIO)
+    inv["id"] = str(uuid.uuid4()); inv["added_date"] = datetime.now().isoformat()
+    data.setdefault("investments",[]).append(inv)
+    _save_file(_PORTFOLIO, data)
+
+def remove_investment(inv_id: str):
+    data = _load_file(_PORTFOLIO)
+    data["investments"] = [i for i in data.get("investments",[]) if i["id"] != inv_id]
+    _save_file(_PORTFOLIO, data)
+
+def get_income(year=None, month=None):
+    e = _load_file(_INCOME).get("entries", [])
+    if year:  e = [x for x in e if x.get("year")  == year]
+    if month: e = [x for x in e if x.get("month") == month]
+    return e
+
+def add_income(entry: dict):
+    data = _load_file(_INCOME); entry["id"] = str(uuid.uuid4())
+    data.setdefault("entries",[]).append(entry); _save_file(_INCOME, data)
+
+def remove_income(eid: str):
+    data = _load_file(_INCOME)
+    data["entries"] = [e for e in data.get("entries",[]) if e.get("id") != eid]
+    _save_file(_INCOME, data)
+
+def get_expenses(year=None, month=None):
+    e = _load_file(_EXPENSES).get("entries", [])
+    if year:  e = [x for x in e if x.get("year")  == year]
+    if month: e = [x for x in e if x.get("month") == month]
+    return e
+
+def add_expense(entry: dict):
+    data = _load_file(_EXPENSES); entry["id"] = str(uuid.uuid4())
+    data.setdefault("entries",[]).append(entry); _save_file(_EXPENSES, data)
+
+def remove_expense(eid: str):
+    data = _load_file(_EXPENSES)
+    data["entries"] = [e for e in data.get("entries",[]) if e.get("id") != eid]
+    _save_file(_EXPENSES, data)
+
+def get_all_years_months():
+    inc = _load_file(_INCOME).get("entries",[])
+    exp = _load_file(_EXPENSES).get("entries",[])
+    ym = set()
+    for e in inc + exp:
+        if "year" in e and "month" in e: ym.add((e["year"], e["month"]))
+    return sorted(ym, reverse=True)
+
+def is_price_fresh(key: str) -> bool:
+    cache = _load_file(_CACHE)
+    p = cache.get("prices",{}).get(key)
+    return bool(p and p.get("date") == datetime.now().strftime("%Y-%m-%d"))
+
+def get_cached_price(key: str):
+    return _load_file(_CACHE).get("prices",{}).get(key)
+
+def set_cached_price(key: str, price_data: dict):
+    cache = _load_file(_CACHE)
+    cache.setdefault("prices",{})[key] = price_data
+    cache.setdefault("updated",{})[key] = datetime.now().isoformat()
+    _save_file(_CACHE, cache)
+
+# ── SHARED: Price fetcher ─────────────────────────────────────────────────────
+def get_usd_ils_rate() -> float:
+    try:
+        import yfinance as yf
+        h = yf.Ticker("USDILS=X").history(period="2d")
+        if not h.empty: return float(h["Close"].iloc[-1])
+    except Exception: pass
+    return 3.72
+
+def _yf_price(ticker: str):
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker); h = t.history(period="5d")
+        if h.empty: return None
+        px = float(h["Close"].iloc[-1]); prev = float(h["Close"].iloc[-2]) if len(h)>1 else px
+        ch = px - prev; chp = (ch/prev*100) if prev else 0
+        info = t.info
+        return {"price":round(px,4),"change":round(ch,4),"change_pct":round(chp,2),
+                "currency":info.get("currency","USD"),
+                "name":info.get("longName") or info.get("shortName") or ticker,
+                "source":"yfinance","date":h.index[-1].strftime("%Y-%m-%d")}
+    except Exception: return None
+
+def fetch_price(inv: dict):
+    t = inv.get("type","us_stock")
+    if t == "us_stock":   return _yf_price(inv["ticker"])
+    if t == "tase_stock": return _yf_price(inv["ticker"].upper().replace(".TA","") + ".TA")
+    if t == "israeli_fund":
+        r = _yf_price(inv.get("fund_id","") + ".TA")
+        if r: r["currency"] = "ILS"; return r
+        return None
+    return {"price":float(inv.get("manual_price",0)),"change":0.0,"change_pct":0.0,
+            "currency":inv.get("currency","ILS"),"name":inv.get("name","ידני"),
+            "source":"manual","date":datetime.now().strftime("%Y-%m-%d")}
+
+def fetch_all_prices(investments: list) -> dict:
+    prices = {}
+    for inv in investments:
+        key = inv.get("ticker") or inv.get("fund_id") or inv["id"]
+        if is_price_fresh(key):
+            prices[inv["id"]] = get_cached_price(key); continue
+        pd_ = fetch_price(inv)
+        if pd_: set_cached_price(key, pd_); prices[inv["id"]] = pd_
+        else:
+            stale = get_cached_price(key)
+            if stale: stale["stale"] = True; prices[inv["id"]] = stale
+    return prices
+
+RTL = """<style>
+html,body,[class*="css"]{direction:rtl;}
+.stApp,.block-container,section[data-testid="stSidebar"]{direction:rtl;}
+input,textarea,select{direction:rtl!important;text-align:right!important;}
+#MainMenu,footer{visibility:hidden;}
+</style>"""
 
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, date
 
-from utils.data_manager import DataManager
-from utils.constants import INCOME_CATEGORIES
-
 st.set_page_config(page_title="הכנסות", page_icon="💵", layout="wide")
-st.markdown("""
-<style>
-html, body, [class*="css"] { direction: rtl; }
-.stApp { direction: rtl; }
-input, select, textarea { direction: rtl !important; text-align: right !important; }
-#MainMenu, footer { visibility: hidden; }
-</style>""", unsafe_allow_html=True)
-
-@st.cache_resource
-def get_dm():
-    return DataManager()
-
-dm = get_dm()
-
-MONTH_NAMES = {1:"ינואר",2:"פברואר",3:"מרץ",4:"אפריל",5:"מאי",6:"יוני",
-               7:"יולי",8:"אוגוסט",9:"ספטמבר",10:"אוקטובר",11:"נובמבר",12:"דצמבר"}
-
+st.markdown(RTL, unsafe_allow_html=True)
 st.title("💵 ניהול הכנסות")
 
 now = datetime.now()
+cy, cm = st.columns(2)
+with cy: sel_year  = st.selectbox("שנה", list(range(now.year, now.year-5, -1)))
+with cm: sel_month = st.selectbox("חודש", list(range(1,13)), format_func=lambda m: MONTH_NAMES[m], index=now.month-1)
 
-# ── Month / Year selector ─────────────────────────────────────────────────────
-col_y, col_m = st.columns(2)
-with col_y:
-    sel_year = st.selectbox("שנה", list(range(now.year, now.year - 5, -1)))
-with col_m:
-    sel_month = st.selectbox("חודש", list(range(1, 13)),
-                             format_func=lambda m: MONTH_NAMES[m],
-                             index=now.month - 1)
-
-# ── Current month income ──────────────────────────────────────────────────────
-entries = dm.get_income(year=sel_year, month=sel_month)
-total   = sum(e["amount"] for e in entries)
-
+entries = get_income(year=sel_year, month=sel_month)
+total = sum(e["amount"] for e in entries)
 st.metric(f"סה\"כ הכנסות — {MONTH_NAMES[sel_month]} {sel_year}", f"₪{total:,.0f}")
 
 if entries:
-    df = pd.DataFrame([{
-        "תיאור":    e.get("description", ""),
-        "קטגוריה": e.get("category", ""),
-        "סכום":     e["amount"],
-        "תאריך":    e.get("date", ""),
-        "id":       e.get("id", ""),
-    } for e in entries]).sort_values("תאריך", ascending=False)
+    df = pd.DataFrame([{"תיאור": e.get("description",""), "קטגוריה": e.get("category",""),
+                         "סכום": f"₪{e['amount']:,.0f}", "תאריך": e.get("date",""),
+                         "id": e.get("id","")} for e in entries])
+    st.dataframe(df.drop(columns=["id"]), use_container_width=True, hide_index=True)
 
-    # Display
-    display = df.drop(columns=["id"]).copy()
-    display["סכום"] = display["סכום"].apply(lambda x: f"₪{x:,.0f}")
-    st.dataframe(display, use_container_width=True, hide_index=True)
-
-    # Category breakdown
-    cat_sum = df.groupby("קטגוריה")["סכום"].sum().reset_index()
-    fig = px.pie(cat_sum, values="סכום", names="קטגוריה", hole=0.4,
-                 title="פיצול הכנסות לפי קטגוריה",
+    cat_s = {}
+    for e in entries: cat_s[e.get("category","")] = cat_s.get(e.get("category",""),0)+e["amount"]
+    fig = px.pie(pd.DataFrame(list(cat_s.items()), columns=["קטגוריה","סכום"]),
+                 values="סכום", names="קטגוריה", hole=0.4,
                  color_discrete_sequence=px.colors.sequential.Greens_r)
     fig.update_traces(textinfo="percent+label")
-    fig.update_layout(height=300, margin=dict(t=40, b=10))
+    fig.update_layout(height=280, margin=dict(t=10,b=10))
     st.plotly_chart(fig, use_container_width=True)
 
-    # Delete entry
     st.subheader("🗑️ מחק רשומה")
-    entry_opts = {e["id"]: f"{e.get('description','')} — ₪{e['amount']:,.0f}" for e in entries}
-    del_id = st.selectbox("בחר רשומה למחיקה", options=list(entry_opts.keys()),
-                           format_func=lambda x: entry_opts[x])
+    id_opts = {e["id"]: f"{e.get('description','')} — ₪{e['amount']:,.0f}" for e in entries}
+    del_id = st.selectbox("בחר", list(id_opts.keys()), format_func=lambda x: id_opts[x])
     if st.button("מחק", type="secondary", key="del_inc"):
-        dm.remove_income(del_id)
-        st.success("הרשומה נמחקה")
+        remove_income(del_id)
+        st.success("נמחק!")
         st.rerun()
 else:
     st.info("לא נמצאו הכנסות לחודש זה.")
 
 st.divider()
-
-# ── Add income form ───────────────────────────────────────────────────────────
 st.subheader("➕ הוספת הכנסה")
-
 with st.form("add_income", clear_on_submit=True):
-    col1, col2 = st.columns(2)
-    with col1:
-        description = st.text_input("תיאור", placeholder="למשל: משכורת ינואר — יוסי")
-        amount      = st.number_input("סכום (₪)", min_value=0.0, step=100.0, format="%.0f")
-    with col2:
-        category = st.selectbox("קטגוריה", INCOME_CATEGORIES)
-        entry_date = st.date_input("תאריך", value=date(sel_year, sel_month, 1))
-
-    note = st.text_area("הערות (אופציונלי)", height=68)
-
-    submitted = st.form_submit_button("הוסף הכנסה ✅", type="primary")
-    if submitted:
+    c1, c2 = st.columns(2)
+    with c1:
+        desc   = st.text_input("תיאור", placeholder="משכורת ינואר")
+        amount = st.number_input("סכום (₪)", min_value=0.0, step=100.0, format="%.0f")
+    with c2:
+        cat  = st.selectbox("קטגוריה", INCOME_CATEGORIES)
+        edate = st.date_input("תאריך", value=date(sel_year, sel_month, 1))
+    note = st.text_area("הערות", height=60)
+    if st.form_submit_button("הוסף ✅", type="primary"):
         if amount <= 0:
-            st.error("יש להזין סכום חיובי")
+            st.error("סכום חיובי בלבד")
         else:
-            dm.add_income({
-                "description": description,
-                "amount":      amount,
-                "category":    category,
-                "date":        entry_date.strftime("%Y-%m-%d"),
-                "year":        sel_year,
-                "month":       sel_month,
-                "note":        note,
-            })
-            st.success(f"הכנסה של ₪{amount:,.0f} נוספה!")
+            add_income({"description":desc,"amount":amount,"category":cat,
+                        "date":edate.strftime("%Y-%m-%d"),"year":sel_year,"month":sel_month,"note":note})
+            st.success(f"נוסף: ₪{amount:,.0f}")
             st.rerun()
 
-# ── Quick-fill buttons ────────────────────────────────────────────────────────
 st.divider()
-st.subheader("⚡ הוספה מהירה — משכורות קבועות")
-st.caption("לחץ כדי לאכלס את הטופס עם ערכים נפוצים")
-
-col_a, col_b, col_c = st.columns(3)
-with col_a:
-    if st.button("💼 משכורת שלי — ₪13,500"):
-        dm.add_income({
-            "description": "משכורת חודשית",
-            "amount":      13500,
-            "category":    "💼 משכורת",
-            "date":        date(sel_year, sel_month, 1).strftime("%Y-%m-%d"),
-            "year":        sel_year,
-            "month":       sel_month,
-            "note":        "הוספה מהירה",
-        })
-        st.success("נוסף: משכורת ₪13,500")
-        st.rerun()
-
-with col_b:
-    if st.button("💼 משכורת אישתי — ₪16,000"):
-        dm.add_income({
-            "description": "משכורת אישתי",
-            "amount":      16000,
-            "category":    "💼 משכורת",
-            "date":        date(sel_year, sel_month, 1).strftime("%Y-%m-%d"),
-            "year":        sel_year,
-            "month":       sel_month,
-            "note":        "הוספה מהירה",
-        })
-        st.success("נוסף: משכורת ₪16,000")
-        st.rerun()
-
-with col_c:
-    maternity = st.number_input("💰 דמי לידה — סכום:", min_value=0, step=100, key="mat")
-    if st.button("הוסף דמי לידה"):
-        if maternity > 0:
-            dm.add_income({
-                "description": "דמי לידה — ביטוח לאומי",
-                "amount":      maternity,
-                "category":    "🤱 דמי לידה / ביטוח לאומי",
-                "date":        date(sel_year, sel_month, 1).strftime("%Y-%m-%d"),
-                "year":        sel_year,
-                "month":       sel_month,
-                "note":        "",
-            })
-            st.success(f"נוסף: דמי לידה ₪{maternity:,}")
-            st.rerun()
-
-# ── Historical income chart ───────────────────────────────────────────────────
-all_ym = dm.get_all_years_months()
-if len(all_ym) > 1:
-    st.divider()
-    st.subheader("📈 היסטוריית הכנסות")
-    hist_rows = []
-    for y, m in sorted(all_ym):
-        ents = dm.get_income(year=y, month=m)
-        for cat in set(e.get("category", "אחר") for e in ents):
-            cat_sum = sum(e["amount"] for e in ents if e.get("category") == cat)
-            hist_rows.append({"חודש": f"{MONTH_NAMES[m][:3]} {y}", "קטגוריה": cat, "סכום": cat_sum})
-    df_hist = pd.DataFrame(hist_rows)
-    fig2 = px.bar(df_hist, x="חודש", y="סכום", color="קטגוריה",
-                  title="הכנסות חודשיות לפי קטגוריה",
-                  color_discrete_sequence=px.colors.qualitative.Set2)
-    fig2.update_layout(height=320, barmode="stack")
-    st.plotly_chart(fig2, use_container_width=True)
+st.subheader("⚡ הוספה מהירה")
+q1, q2, q3 = st.columns(3)
+with q1:
+    if st.button("💼 משכורת שלי ₪13,500"):
+        add_income({"description":"משכורת חודשית","amount":13500,"category":"💼 משכורת",
+                    "date":date(sel_year,sel_month,1).strftime("%Y-%m-%d"),"year":sel_year,"month":sel_month,"note":""})
+        st.success("נוסף!"); st.rerun()
+with q2:
+    if st.button("💼 משכורת אישתי ₪16,000"):
+        add_income({"description":"משכורת אישתי","amount":16000,"category":"💼 משכורת",
+                    "date":date(sel_year,sel_month,1).strftime("%Y-%m-%d"),"year":sel_year,"month":sel_month,"note":""})
+        st.success("נוסף!"); st.rerun()
+with q3:
+    mat = st.number_input("דמי לידה ₪:", min_value=0, step=100, key="mat")
+    if st.button("הוסף דמי לידה") and mat > 0:
+        add_income({"description":"דמי לידה — ביטוח לאומי","amount":mat,
+                    "category":"🤱 דמי לידה / ביטוח לאומי",
+                    "date":date(sel_year,sel_month,1).strftime("%Y-%m-%d"),"year":sel_year,"month":sel_month,"note":""})
+        st.success(f"נוסף: ₪{mat:,}"); st.rerun()
