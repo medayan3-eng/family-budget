@@ -1,219 +1,317 @@
-# pages/1_Investments.py  –  ניהול השקעות
-import sys, os
+# ── SHARED: constants ────────────────────────────────────────────────────────
+EXPENSE_CATEGORIES = {
+    "🏠 דיור": ["שכר דירה","ארנונה","חשמל","מים","גז","ועד בית","אינטרנט","כבלים/OTT","תיקונים","ריהוט"],
+    "🛒 מזון": ["סופרמרקט","מסעדות","בתי קפה","משלוחים","שוק/ירקן"],
+    "👶 תינוקת": ["חיתולים","ביגוד לתינוקת","צעצועים","רפואה לתינוקת","מטפלת/מעון","שונות"],
+    "🚗 תחבורה": ["דלק","ביטוח רכב","טיפול רכב","חניה ודוחות","תחבורה ציבורית","מוניות"],
+    "👕 ביגוד": ["ביגוד - אישה","ביגוד - גבר","נעליים","אביזרים"],
+    "💊 בריאות": ["תרופות","רופא/מרפאה","ביטוח משלים","אופטיקה","דנטיסט","פיזיותרפיה"],
+    "🎬 פנאי": ["בילויים","נסיעות","ספורט","קולנוע","מנויים"],
+    "📚 חינוך": ["קורסים","ספרים","לימודים"],
+    "🎁 מתנות": ["מתנות","אירועים","תרומות"],
+    "📦 שונות": ["ניקיון","היגיינה","קניות כלליות","אחר"],
+}
+INCOME_CATEGORIES = ["💼 משכורת","🤱 דמי לידה / ביטוח לאומי","🎯 בונוס","📈 הכנסה פסיבית","🏠 הכנסה מנכס","💰 אחר"]
+ASSET_TYPES = {"us_stock":"📈 מניה אמריקאית","tase_stock":"🇮🇱 מניה ישראלית","israeli_fund":"📊 קרן נאמנות","manual":"✏️ ידני"}
+MONTH_NAMES = {1:"ינואר",2:"פברואר",3:"מרץ",4:"אפריל",5:"מאי",6:"יוני",7:"יולי",8:"אוגוסט",9:"ספטמבר",10:"אוקטובר",11:"נובמבר",12:"דצמבר"}
 
-for _p in [
-    os.path.dirname(os.path.abspath(__file__)),
-    "/mount/src/family-budget",
-    os.getcwd(),
-    os.path.dirname(os.getcwd()),
-]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+# ── SHARED: DataManager ───────────────────────────────────────────────────────
+import json, uuid, os
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, List
+
+def _get_data_dir():
+    # Try writable locations in order
+    for candidate in [
+        Path(os.environ.get("HOME", "/tmp")) / "family_budget_data",
+        Path("/tmp/family_budget_data"),
+    ]:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            test = candidate / ".test"
+            test.write_text("ok"); test.unlink()
+            return candidate
+        except Exception:
+            continue
+    return Path("/tmp/family_budget_data")
+
+_DATA_DIR = _get_data_dir()
+
+def _load_file(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def _save_file(path: Path, data: dict):
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def _init(path: Path, default: dict):
+    if not path.exists():
+        _save_file(path, default)
+
+_PORTFOLIO = _DATA_DIR / "portfolio.json"
+_INCOME    = _DATA_DIR / "income.json"
+_EXPENSES  = _DATA_DIR / "expenses.json"
+_CACHE     = _DATA_DIR / "prices_cache.json"
+for _f, _d in [(_PORTFOLIO,{"investments":[]}),(_INCOME,{"entries":[]}),(_EXPENSES,{"entries":[]}),(_CACHE,{"prices":{},"updated":{}})]:
+    _init(_f, _d)
+
+def get_investments():
+    return _load_file(_PORTFOLIO).get("investments", [])
+
+def add_investment(inv: dict):
+    data = _load_file(_PORTFOLIO)
+    inv["id"] = str(uuid.uuid4()); inv["added_date"] = datetime.now().isoformat()
+    data.setdefault("investments",[]).append(inv)
+    _save_file(_PORTFOLIO, data)
+
+def remove_investment(inv_id: str):
+    data = _load_file(_PORTFOLIO)
+    data["investments"] = [i for i in data.get("investments",[]) if i["id"] != inv_id]
+    _save_file(_PORTFOLIO, data)
+
+def get_income(year=None, month=None):
+    e = _load_file(_INCOME).get("entries", [])
+    if year:  e = [x for x in e if x.get("year")  == year]
+    if month: e = [x for x in e if x.get("month") == month]
+    return e
+
+def add_income(entry: dict):
+    data = _load_file(_INCOME); entry["id"] = str(uuid.uuid4())
+    data.setdefault("entries",[]).append(entry); _save_file(_INCOME, data)
+
+def remove_income(eid: str):
+    data = _load_file(_INCOME)
+    data["entries"] = [e for e in data.get("entries",[]) if e.get("id") != eid]
+    _save_file(_INCOME, data)
+
+def get_expenses(year=None, month=None):
+    e = _load_file(_EXPENSES).get("entries", [])
+    if year:  e = [x for x in e if x.get("year")  == year]
+    if month: e = [x for x in e if x.get("month") == month]
+    return e
+
+def add_expense(entry: dict):
+    data = _load_file(_EXPENSES); entry["id"] = str(uuid.uuid4())
+    data.setdefault("entries",[]).append(entry); _save_file(_EXPENSES, data)
+
+def remove_expense(eid: str):
+    data = _load_file(_EXPENSES)
+    data["entries"] = [e for e in data.get("entries",[]) if e.get("id") != eid]
+    _save_file(_EXPENSES, data)
+
+def get_all_years_months():
+    inc = _load_file(_INCOME).get("entries",[])
+    exp = _load_file(_EXPENSES).get("entries",[])
+    ym = set()
+    for e in inc + exp:
+        if "year" in e and "month" in e: ym.add((e["year"], e["month"]))
+    return sorted(ym, reverse=True)
+
+def is_price_fresh(key: str) -> bool:
+    cache = _load_file(_CACHE)
+    p = cache.get("prices",{}).get(key)
+    return bool(p and p.get("date") == datetime.now().strftime("%Y-%m-%d"))
+
+def get_cached_price(key: str):
+    return _load_file(_CACHE).get("prices",{}).get(key)
+
+def set_cached_price(key: str, price_data: dict):
+    cache = _load_file(_CACHE)
+    cache.setdefault("prices",{})[key] = price_data
+    cache.setdefault("updated",{})[key] = datetime.now().isoformat()
+    _save_file(_CACHE, cache)
+
+# ── SHARED: Price fetcher ─────────────────────────────────────────────────────
+def get_usd_ils_rate() -> float:
+    try:
+        import yfinance as yf
+        h = yf.Ticker("USDILS=X").history(period="2d")
+        if not h.empty: return float(h["Close"].iloc[-1])
+    except Exception: pass
+    return 3.72
+
+def _yf_price(ticker: str):
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker); h = t.history(period="5d")
+        if h.empty: return None
+        px = float(h["Close"].iloc[-1]); prev = float(h["Close"].iloc[-2]) if len(h)>1 else px
+        ch = px - prev; chp = (ch/prev*100) if prev else 0
+        info = t.info
+        return {"price":round(px,4),"change":round(ch,4),"change_pct":round(chp,2),
+                "currency":info.get("currency","USD"),
+                "name":info.get("longName") or info.get("shortName") or ticker,
+                "source":"yfinance","date":h.index[-1].strftime("%Y-%m-%d")}
+    except Exception: return None
+
+def fetch_price(inv: dict):
+    t = inv.get("type","us_stock")
+    if t == "us_stock":   return _yf_price(inv["ticker"])
+    if t == "tase_stock": return _yf_price(inv["ticker"].upper().replace(".TA","") + ".TA")
+    if t == "israeli_fund":
+        r = _yf_price(inv.get("fund_id","") + ".TA")
+        if r: r["currency"] = "ILS"; return r
+        return None
+    return {"price":float(inv.get("manual_price",0)),"change":0.0,"change_pct":0.0,
+            "currency":inv.get("currency","ILS"),"name":inv.get("name","ידני"),
+            "source":"manual","date":datetime.now().strftime("%Y-%m-%d")}
+
+def fetch_all_prices(investments: list) -> dict:
+    prices = {}
+    for inv in investments:
+        key = inv.get("ticker") or inv.get("fund_id") or inv["id"]
+        if is_price_fresh(key):
+            prices[inv["id"]] = get_cached_price(key); continue
+        pd_ = fetch_price(inv)
+        if pd_: set_cached_price(key, pd_); prices[inv["id"]] = pd_
+        else:
+            stale = get_cached_price(key)
+            if stale: stale["stale"] = True; prices[inv["id"]] = stale
+    return prices
+
+RTL = """<style>
+html,body,[class*="css"]{direction:rtl;}
+.stApp,.block-container,section[data-testid="stSidebar"]{direction:rtl;}
+input,textarea,select{direction:rtl!important;text-align:right!important;}
+#MainMenu,footer{visibility:hidden;}
+</style>"""
 
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
 
-from utils.data_manager import DataManager
-from utils.price_fetcher import fetch_all_prices, fetch_asset_price, get_usd_ils_rate
-from utils.constants import ASSET_TYPES
-
 st.set_page_config(page_title="השקעות", page_icon="📈", layout="wide")
-st.markdown("""
-<style>
-html, body, [class*="css"] { direction: rtl; }
-.stApp { direction: rtl; }
-input, select, textarea { direction: rtl !important; text-align: right !important; }
-#MainMenu, footer { visibility: hidden; }
-</style>""", unsafe_allow_html=True)
-
-@st.cache_resource
-def get_dm():
-    return DataManager()
-
-dm = get_dm()
-
-def ils(v): return f"₪{v:,.2f}"
-def usd(v): return f"${v:,.2f}"
-
+st.markdown(RTL, unsafe_allow_html=True)
 st.title("📈 ניהול השקעות")
-st.caption("מניות, קרנות ונכסים — עדכון מחירים פעם ביום")
 
-# ── USD/ILS rate ──────────────────────────────────────────────────────────────
 with st.spinner("מושך שער דולר..."):
     usd_ils = get_usd_ils_rate()
-st.info(f"שער דולר נוכחי: ₪{usd_ils:.3f}")
+st.info(f"שער דולר: ₪{usd_ils:.3f}")
 
-# ── Fetch all prices ──────────────────────────────────────────────────────────
-investments = dm.get_investments()
+investments = get_investments()
 with st.spinner("מושך מחירים..."):
-    prices = fetch_all_prices(investments, dm)
+    prices = fetch_all_prices(investments)
 
-# ── Portfolio table ───────────────────────────────────────────────────────────
 if investments:
     rows = []
-    total_val = 0.0
-    total_cost = 0.0
-
+    total_val = total_cost = 0.0
     for inv in investments:
         pd_ = prices.get(inv["id"])
-        units     = float(inv.get("units", 0))
-        avg_px    = float(inv.get("purchase_price", 0))
-        cur_px    = float(pd_["price"]) if pd_ else 0.0
-        ccy       = pd_.get("currency", "ILS") if pd_ else inv.get("currency", "ILS")
-        mul       = usd_ils if ccy == "USD" else 1.0
-        val_ils   = cur_px * units * mul
-        cost_ils  = avg_px * units * mul
-        gain_ils  = val_ils - cost_ils
-        gain_pct  = (gain_ils / cost_ils * 100) if cost_ils else 0.0
-        chg_pct   = pd_.get("change_pct", 0.0) if pd_ else 0.0
-        stale     = pd_.get("stale", False) if pd_ else True
-
-        total_val  += val_ils
-        total_cost += cost_ils
-
+        units = float(inv.get("units", 0))
+        avg_px = float(inv.get("purchase_price", 0))
+        cur_px = float(pd_["price"]) if pd_ else 0.0
+        ccy = pd_.get("currency", "ILS") if pd_ else inv.get("currency", "ILS")
+        mul = usd_ils if ccy == "USD" else 1.0
+        val = cur_px * units * mul
+        cost = avg_px * units * mul
+        gain = val - cost
+        gp = (gain / cost * 100) if cost else 0
+        chg = pd_.get("change_pct", 0) if pd_ else 0
+        total_val += val
+        total_cost += cost
+        sym = "$" if ccy == "USD" else "₪"
         rows.append({
-            "שם":           inv.get("name") or inv.get("ticker") or inv.get("fund_id", "—"),
-            "סוג":          ASSET_TYPES.get(inv.get("type", "us_stock"), "—"),
-            "יחידות":       units,
-            "מחיר קנייה":   f"{'$' if ccy=='USD' else '₪'}{avg_px:,.3f}",
-            "מחיר עכשיו":   (f"{'$' if ccy=='USD' else '₪'}{cur_px:,.3f}" + (" ⚠️" if stale else "")) if pd_ else "—",
-            "שינוי יומי":   f"{'+' if chg_pct>=0 else ''}{chg_pct:.2f}%" if pd_ else "—",
-            "שווי (₪)":     f"₪{val_ils:,.0f}",
-            "רווח/הפסד":    f"{'▲' if gain_ils>=0 else '▼'} ₪{abs(gain_ils):,.0f} ({gain_pct:+.1f}%)",
-            "_id":          inv["id"],
+            "שם": inv.get("name") or inv.get("ticker") or inv.get("fund_id", "—"),
+            "סוג": ASSET_TYPES.get(inv.get("type", "us_stock"), "—"),
+            "יחידות": units,
+            "מחיר קנייה": f"{sym}{avg_px:,.3f}",
+            "מחיר עכשיו": (f"{sym}{cur_px:,.3f}" + (" ⚠️" if pd_ and pd_.get("stale") else "")) if pd_ else "—",
+            "שינוי יומי": f"{chg:+.2f}%" if pd_ else "—",
+            "שווי (₪)": f"₪{val:,.0f}",
+            "רווח/הפסד": f"{'\u25b2' if gain >= 0 else '\u25bc'} ₪{abs(gain):,.0f} ({gp:+.1f}%)",
+            "_id": inv["id"],
         })
+    tot_gain = total_val - total_cost
+    tot_pct = (tot_gain / total_cost * 100) if total_cost else 0
+    st.subheader(f"סה\"כ: ₪{total_val:,.0f}  |  רווח: ₪{tot_gain:,.0f} ({tot_pct:+.1f}%)")
+    st.dataframe(pd.DataFrame(rows).drop(columns=["_id"]), use_container_width=True, hide_index=True)
 
-    df = pd.DataFrame(rows)
-    st.subheader(f"סה\"כ שווי תיק: ₪{total_val:,.0f}  |  רווח כולל: ₪{total_val-total_cost:,.0f} ({(total_val-total_cost)/total_cost*100:+.1f}% )" if total_cost else f"סה\"כ שווי תיק: ₪{total_val:,.0f}")
-
-    display_df = df.drop(columns=["_id"])
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-    # Per-asset pie
     if total_val > 0:
-        fig = px.pie(
-            df, values=[float(r.replace("₪","").replace(",","")) for r in df["שווי (₪)"]],
-            names="שם", hole=0.4,
-            color_discrete_sequence=px.colors.sequential.Blues_r,
-            title="פיצול תיק לפי שווי"
-        )
+        pie_vals = [float(r["שווי (₪)"].replace("₪","").replace(",","")) for r in rows]
+        pie_names = [r["שם"] for r in rows]
+        fig = px.pie(values=pie_vals, names=pie_names, hole=0.4,
+                     color_discrete_sequence=px.colors.sequential.Blues_r)
         fig.update_traces(textinfo="percent+label")
-        fig.update_layout(height=350, margin=dict(t=40,b=10))
+        fig.update_layout(height=320, margin=dict(t=10, b=10))
         st.plotly_chart(fig, use_container_width=True)
 
-    # Delete
     st.subheader("🗑️ מחק נכס")
-    inv_names = {inv["id"]: (inv.get("name") or inv.get("ticker") or inv.get("fund_id","—")) for inv in investments}
-    del_id = st.selectbox("בחר נכס למחיקה", options=list(inv_names.keys()),
-                          format_func=lambda x: inv_names[x])
-    if st.button("מחק נכס", type="secondary"):
-        dm.remove_investment(del_id)
-        st.success("הנכס נמחק!")
+    opts = {i["id"]: i.get("name") or i.get("ticker") or i.get("fund_id", "—") for i in investments}
+    del_id = st.selectbox("בחר נכס", list(opts.keys()), format_func=lambda x: opts[x])
+    if st.button("מחק", type="secondary"):
+        remove_investment(del_id)
+        st.success("נמחק!")
         st.rerun()
 else:
-    st.info("עדיין אין נכסים בתיק. הוסף את הנכס הראשון שלך למטה.")
+    st.info("עדיין אין נכסים. הוסף נכס למטה.")
 
 st.divider()
+st.subheader("➕ הוספת נכס")
 
-# ── Add investment form ───────────────────────────────────────────────────────
-st.subheader("➕ הוספת נכס חדש")
-
-with st.form("add_investment", clear_on_submit=True):
-    type_options = list(ASSET_TYPES.keys())
-    type_labels  = list(ASSET_TYPES.values())
-    asset_type   = st.selectbox("סוג נכס", options=type_options,
-                                format_func=lambda x: ASSET_TYPES[x])
-
-    col1, col2 = st.columns(2)
-    with col1:
-        name = st.text_input("שם (לתצוגה)", placeholder="למשל: מיטב S&P500")
-
-    if asset_type == "us_stock":
-        with col2:
-            ticker = st.text_input("טיקר (Yahoo Finance)", placeholder="למשל: AAPL, SPY, QQQ")
-        fund_id = ""
-    elif asset_type == "tase_stock":
-        with col2:
-            ticker = st.text_input("סימול TASE", placeholder="למשל: TEVA, NICE")
-        fund_id = ""
-    elif asset_type == "israeli_fund":
-        with col2:
-            fund_id = st.text_input("מספר קרן (7 ספרות)", placeholder="למשל: 5113335")
-        ticker = ""
-    else:  # manual
-        with col2:
-            manual_price = st.number_input("מחיר נוכחי", min_value=0.0, value=0.0, step=0.01)
-            currency_manual = st.selectbox("מטבע", ["ILS", "USD"])
-        fund_id = ""
-        ticker  = ""
-
-    col3, col4 = st.columns(2)
-    with col3:
-        units = st.number_input("כמות יחידות", min_value=0.0, value=0.0, step=0.001, format="%.3f")
-    with col4:
-        purchase_price = st.number_input("מחיר קנייה ממוצע ליחידה",
-                                          min_value=0.0, value=0.0, step=0.0001, format="%.4f")
-
-    submitted = st.form_submit_button("הוסף נכס ✅", type="primary")
-
-    if submitted:
-        if units <= 0:
-            st.error("יש להזין כמות יחידות חיובית")
+with st.form("add_inv", clear_on_submit=True):
+    asset_type = st.selectbox("סוג", list(ASSET_TYPES.keys()), format_func=lambda x: ASSET_TYPES[x])
+    c1, c2 = st.columns(2)
+    with c1:
+        name = st.text_input("שם לתצוגה", placeholder="למשל: SPY ETF")
+    with c2:
+        if asset_type in ("us_stock", "tase_stock"):
+            ticker_in = st.text_input("טיקר", placeholder="AAPL / TEVA")
+            fund_id_in = ""
+            manual_price_in = 0.0
+            manual_ccy_in = "ILS"
+        elif asset_type == "israeli_fund":
+            fund_id_in = st.text_input("מספר קרן (7 ספרות)", placeholder="5113335")
+            ticker_in = ""
+            manual_price_in = 0.0
+            manual_ccy_in = "ILS"
         else:
-            inv = {
-                "type":           asset_type,
-                "name":           name,
-                "units":          units,
-                "purchase_price": purchase_price,
-            }
+            manual_price_in = st.number_input("מחיר נוכחי", min_value=0.0, step=0.01)
+            manual_ccy_in = st.selectbox("מטבע", ["ILS", "USD"])
+            ticker_in = ""
+            fund_id_in = ""
+    c3, c4 = st.columns(2)
+    with c3:
+        units_in = st.number_input("כמות יחידות", min_value=0.0, step=0.001, format="%.3f")
+    with c4:
+        pp_in = st.number_input("מחיר קנייה ממוצע", min_value=0.0, step=0.0001, format="%.4f")
+    if st.form_submit_button("הוסף ✅", type="primary"):
+        if units_in <= 0:
+            st.error("יש להזין כמות חיובית")
+        else:
+            new_inv = {"type": asset_type, "name": name, "units": units_in, "purchase_price": pp_in}
             if asset_type == "us_stock":
-                inv["ticker"] = ticker.upper().strip()
+                new_inv["ticker"] = ticker_in.upper().strip()
             elif asset_type == "tase_stock":
-                inv["ticker"] = ticker.upper().strip()
+                new_inv["ticker"] = ticker_in.upper().strip()
             elif asset_type == "israeli_fund":
-                inv["fund_id"] = fund_id.strip()
+                new_inv["fund_id"] = fund_id_in.strip()
             else:
-                inv["manual_price"] = manual_price
-                inv["currency"]     = currency_manual
-                inv["manual_price_date"] = datetime.now().strftime("%Y-%m-%d")
-
-            # Quick price test
-            with st.spinner("בודק חיבור למחיר..."):
-                test = fetch_asset_price(inv)
-
-            if test:
-                st.success(f"✅ מחיר נמצא: {'$' if test['currency']=='USD' else '₪'}{test['price']:,.3f} — {test.get('name','')}")
-            elif asset_type != "manual":
-                st.warning("⚠️ לא הצלחנו לשלוף מחיר אוטומטי. הנכס יישמר עם מחיר ידני.")
-
-            dm.add_investment(inv)
-            st.success("הנכס נוסף לתיק!")
+                new_inv["manual_price"] = manual_price_in
+                new_inv["currency"] = manual_ccy_in
+            add_investment(new_inv)
+            st.success("נוסף!")
             st.rerun()
 
-# ── Manual price update ───────────────────────────────────────────────────────
-if investments:
-    st.divider()
-    st.subheader("✏️ עדכון מחיר ידני (לקרנות ישראליות)")
-    inv_names = {inv["id"]: (inv.get("name") or inv.get("ticker") or inv.get("fund_id","—"))
-                 for inv in investments}
-    upd_id = st.selectbox("בחר נכס", options=list(inv_names.keys()),
-                           format_func=lambda x: inv_names[x], key="upd_sel")
-    upd_price = st.number_input("מחיר עדכני", min_value=0.0, value=0.0,
-                                 step=0.0001, format="%.4f", key="upd_px")
+st.divider()
+st.subheader("✏️ עדכון מחיר ידני")
+investments2 = get_investments()
+if investments2:
+    opts2 = {i["id"]: i.get("name") or i.get("ticker") or "—" for i in investments2}
+    upd_id = st.selectbox("נכס", list(opts2.keys()), format_func=lambda x: opts2[x], key="upd")
+    upd_px = st.number_input("מחיר עדכני", min_value=0.0, step=0.0001, format="%.4f")
     if st.button("עדכן מחיר"):
-        sel_inv = next(i for i in investments if i["id"] == upd_id)
-        cache_key = sel_inv.get("ticker") or sel_inv.get("fund_id") or upd_id
-        price_data = {
-            "price":      upd_price,
-            "change":     0.0,
-            "change_pct": 0.0,
-            "currency":   sel_inv.get("currency", "ILS"),
-            "name":       sel_inv.get("name", ""),
-            "source":     "manual_update",
-            "date":       datetime.now().strftime("%Y-%m-%d"),
-        }
-        dm.set_cached_price(cache_key, price_data)
-        st.success(f"מחיר עודכן ל-₪{upd_price:,.4f}")
+        inv_sel = next(i for i in investments2 if i["id"] == upd_id)
+        key = inv_sel.get("ticker") or inv_sel.get("fund_id") or upd_id
+        set_cached_price(key, {
+            "price": upd_px, "change": 0, "change_pct": 0,
+            "currency": inv_sel.get("currency", "ILS"),
+            "name": inv_sel.get("name", ""),
+            "source": "manual",
+            "date": datetime.now().strftime("%Y-%m-%d"),
+        })
+        st.success(f"עודכן ל-₪{upd_px:,.4f}")
         st.rerun()
