@@ -1,7 +1,12 @@
 # app.py  –  לוח בקרה ראשי
-import sys
+import sys, os
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
+
+# Ensure repo root is on sys.path (works locally and on Streamlit Cloud)
+_root = Path(__file__).resolve().parent
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
+os.chdir(_root)
 
 import streamlit as st
 import pandas as pd
