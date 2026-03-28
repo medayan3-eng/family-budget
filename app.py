@@ -209,23 +209,18 @@ with st.sidebar:
 st.title("💰 תוכנית חיסכון משפחתית")
 st.caption(f"לוח בקרה | {MONTH_NAMES[month]} {year}")
 
-# ── Mobile navigation ─────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-.nav-btn a {
-    display:block; text-align:center; background:#1e3a5f; color:white!important;
-    padding:14px 8px; border-radius:12px; font-size:1.1rem; font-weight:600;
-    text-decoration:none; margin:4px 0;
-}
-.nav-btn a:hover { background:#2d5a9e; }
-</style>""", unsafe_allow_html=True)
 
-nav1, nav2, nav3, nav4 = st.columns(4)
-with nav1: st.page_link("pages/1_Investments.py", label="📈 השקעות", use_container_width=True)
-with nav2: st.page_link("pages/2_Income.py",      label="💵 הכנסות",  use_container_width=True)
-with nav3: st.page_link("pages/3_Expenses.py",    label="🧾 הוצאות",  use_container_width=True)
-with nav4: st.page_link("pages/4_Analysis.py",    label="📊 ניתוח",   use_container_width=True)
+n1,n2,n3,n4 = st.columns(4)
+with n1:
+    if st.button("📈 השקעות", use_container_width=True): st.switch_page("pages/1_Investments.py")
+with n2:
+    if st.button("💵 הכנסות",  use_container_width=True): st.switch_page("pages/2_Income.py")
+with n3:
+    if st.button("🧾 הוצאות",  use_container_width=True): st.switch_page("pages/3_Expenses.py")
+with n4:
+    if st.button("📊 ניתוח",   use_container_width=True): st.switch_page("pages/4_Analysis.py")
 st.divider()
+
 
 with st.spinner("טוען..."):
     investments = get_investments()
