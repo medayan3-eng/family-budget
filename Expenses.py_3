@@ -1,7 +1,11 @@
 # pages/3_Expenses.py  –  ניהול הוצאות
-import sys
+import sys, os
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+
+_root = Path(__file__).resolve().parent.parent
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
+os.chdir(_root)
 
 import streamlit as st
 import pandas as pd
