@@ -12,7 +12,7 @@ EXPENSE_CATEGORIES = {
     "📦 שונות": ["ניקיון","היגיינה","קניות כלליות","אחר"],
 }
 INCOME_CATEGORIES = ["💼 משכורת","🤱 דמי לידה / ביטוח לאומי","🎯 בונוס","📈 הכנסה פסיבית","🏠 הכנסה מנכס","💰 אחר"]
-ASSET_TYPES = {"us_stock":"📈 מניה אמריקאית","tase_stock":"🇮🇱 מניה ישראלית","israeli_fund":"📊 קרן נאמנות","manual":"✏️ ידני"}
+ASSET_TYPES = {"us_stock":"📈 מניה אמריקאית","tase_stock":"🇮🇱 מניה ישראלית","israeli_fund":"📊 קרן נאמנות","cash_ils":"💵 מזומן שקלים","cash_usd":"💵 מזומן דולרים","manual":"✏️ ידני"}
 MONTH_NAMES = {1:"ינואר",2:"פברואר",3:"מרץ",4:"אפריל",5:"מאי",6:"יוני",7:"יולי",8:"אוגוסט",9:"ספטמבר",10:"אוקטובר",11:"נובמבר",12:"דצמבר"}
 
 # ── SHARED: DataManager ───────────────────────────────────────────────────────
@@ -155,6 +155,14 @@ def fetch_price(inv: dict):
         r = _yf_price(inv.get("fund_id","") + ".TA")
         if r: r["currency"] = "ILS"; return r
         return None
+    if t == "cash_ils":
+        return {"price":float(inv.get("manual_price",0)),"change":0.0,"change_pct":0.0,
+                "currency":"ILS","name":inv.get("name","מזומן שקלים"),
+                "source":"cash","date":datetime.now().strftime("%Y-%m-%d")}
+    if t == "cash_usd":
+        return {"price":float(inv.get("manual_price",0)),"change":0.0,"change_pct":0.0,
+                "currency":"USD","name":inv.get("name","מזומן דולרים"),
+                "source":"cash","date":datetime.now().strftime("%Y-%m-%d")}
     return {"price":float(inv.get("manual_price",0)),"change":0.0,"change_pct":0.0,
             "currency":inv.get("currency","ILS"),"name":inv.get("name","ידני"),
             "source":"manual","date":datetime.now().strftime("%Y-%m-%d")}
@@ -421,16 +429,27 @@ with tab4:
         elif at == "israeli_fund":
             fi = st.text_input("מספר קרן (7 ספרות)")
             tk=""; mp=0.0; mc="ILS"
+        elif at in ("cash_ils","cash_usd"):
+            ccy_label = "שקלים (₪)" if at=="cash_ils" else "דולרים ($)"
+            mp = st.number_input(f"סכום מזומן ({ccy_label})", min_value=0.0, step=100.0, format="%.2f")
+            mc = "ILS" if at=="cash_ils" else "USD"
+            tk=""; fi=""
+            st.info("💡 טיפ: עדכן את הסכום כשמשתנה בדף 'עדכון מחיר ידני'")
         else:
             mp = st.number_input("מחיר נוכחי", min_value=0.0, step=0.01)
             mc = st.selectbox("מטבע", ["ILS","USD"])
             tk=""; fi=""
-        un = st.number_input("כמות יחידות", min_value=0.0, step=0.001, format="%.3f")
-        pp = st.number_input("מחיר קנייה ממוצע", min_value=0.0, step=0.0001, format="%.4f")
-        if st.form_submit_button("הוסף נכס ✅", type="primary", use_container_width=True):
-            if un <= 0: st.error("כמות חיובית בלבד")
+        is_cash = at in ("cash_ils","cash_usd")
+        if not is_cash:
+            un = st.number_input("כמות יחידות", min_value=0.0, step=0.001, format="%.3f")
+            pp = st.number_input("מחיר קנייה ממוצע", min_value=0.0, step=0.0001, format="%.4f")
+        else:
+            un = 1.0; pp = mp
+        if st.form_submit_button("הוסף ✅", type="primary", use_container_width=True):
+            if mp <= 0 and is_cash: st.error("הכנס סכום מזומן חיובי")
+            elif not is_cash and un <= 0: st.error("כמות חיובית בלבד")
             else:
-                new_inv={"type":at,"name":nm,"units":un,"purchase_price":pp}
+                new_inv={"type":at,"name":nm or ("מזומן שקלים" if at=="cash_ils" else "מזומן דולרים"),"units":un,"purchase_price":pp}
                 if at in ("us_stock","tase_stock"): new_inv["ticker"]=tk.upper().strip()
                 elif at=="israeli_fund": new_inv["fund_id"]=fi.strip()
                 else: new_inv["manual_price"]=mp; new_inv["currency"]=mc
