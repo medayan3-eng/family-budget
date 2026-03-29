@@ -430,11 +430,10 @@ with tab4:
             fi = st.text_input("מספר קרן (7 ספרות)")
             tk=""; mp=0.0; mc="ILS"
         elif at in ("cash_ils","cash_usd"):
-            ccy_label = "שקלים (₪)" if at=="cash_ils" else "דולרים ($)"
-            mp = st.number_input(f"סכום מזומן ({ccy_label})", min_value=0.0, step=100.0, format="%.2f")
+            sym = "₪" if at=="cash_ils" else "$"
+            mp = st.number_input(f"סכום מזומן ({sym})", min_value=0.0, step=100.0, format="%.2f")
             mc = "ILS" if at=="cash_ils" else "USD"
-            tk=""; fi=""
-            st.info("💡 טיפ: עדכן את הסכום כשמשתנה בדף 'עדכון מחיר ידני'")
+            tk=""; fi=""; un=1.0; pp=mp
         else:
             mp = st.number_input("מחיר נוכחי", min_value=0.0, step=0.01)
             mc = st.selectbox("מטבע", ["ILS","USD"])
@@ -443,13 +442,11 @@ with tab4:
         if not is_cash:
             un = st.number_input("כמות יחידות", min_value=0.0, step=0.001, format="%.3f")
             pp = st.number_input("מחיר קנייה ממוצע", min_value=0.0, step=0.0001, format="%.4f")
-        else:
-            un = 1.0; pp = mp
         if st.form_submit_button("הוסף ✅", type="primary", use_container_width=True):
-            if mp <= 0 and is_cash: st.error("הכנס סכום מזומן חיובי")
+            if is_cash and mp <= 0: st.error("הכנס סכום מזומן חיובי")
             elif not is_cash and un <= 0: st.error("כמות חיובית בלבד")
             else:
-                new_inv={"type":at,"name":nm or ("מזומן שקלים" if at=="cash_ils" else "מזומן דולרים"),"units":un,"purchase_price":pp}
+                new_inv={"type":at,"name":nm or ("מזומן שקלים" if at=="cash_ils" else "מזומן דולרים"),"units":1.0,"purchase_price":mp}
                 if at in ("us_stock","tase_stock"): new_inv["ticker"]=tk.upper().strip()
                 elif at=="israeli_fund": new_inv["fund_id"]=fi.strip()
                 else: new_inv["manual_price"]=mp; new_inv["currency"]=mc
