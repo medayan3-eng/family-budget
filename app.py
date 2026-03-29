@@ -16,140 +16,117 @@ ASSET_TYPES = {"us_stock":"📈 מניה אמריקאית","tase_stock":"🇮�
 MONTH_NAMES = {1:"ינואר",2:"פברואר",3:"מרץ",4:"אפריל",5:"מאי",6:"יוני",7:"יולי",8:"אוגוסט",9:"ספטמבר",10:"אוקטובר",11:"נובמבר",12:"דצמבר"}
 
 # ── SHARED: DataManager (JSONBin.io) ─────────────────────────────────────────
-# כל הנתונים נשמרים ב-JSONBin.io - חינמי ופשוט
-# צריך רק: JSONBIN_KEY ב-Streamlit Secrets
 import json, uuid, os, requests
 from datetime import datetime
-from typing import Optional, List
 import streamlit as st
 
 JSONBIN_BASE = "https://api.jsonbin.io/v3"
 
-@st.cache_resource
-def _get_headers():
-    key = st.secrets.get("JSONBIN_KEY", os.environ.get("JSONBIN_KEY",""))
-    return {"X-Master-Key": key, "Content-Type": "application/json"}
+def _key():
+    return st.secrets.get("JSONBIN_KEY", os.environ.get("JSONBIN_KEY",""))
 
-def _get_bin_id(name: str) -> str:
-    """Get or create a bin for each data type, storing IDs in secrets or cache."""
-    # Store bin IDs in a meta-bin
-    meta_key = f"_bin_id_{name}"
-    if meta_key in st.session_state:
-        return st.session_state[meta_key]
-    
-    # Try to find existing bin by name
-    headers = _get_headers()
-    try:
-        r = requests.get(f"{JSONBIN_BASE}/bins", headers=headers, timeout=10)
-        if r.status_code == 200:
-            bins = r.json()
-            for b in bins:
-                if b.get("record", {}).get("_name") == f"family_budget_{name}":
-                    st.session_state[meta_key] = b["id"]
-                    return b["id"]
-    except Exception:
-        pass
-    
+def _headers():
+    return {"X-Master-Key": _key(), "Content-Type": "application/json"}
+
+def _get_or_create_bin(name: str) -> str:
+    # bin_id stored in session_state across reruns within same session
+    sid = f"bid_{name}"
+    if sid in st.session_state and st.session_state[sid]:
+        return st.session_state[sid]
+    # Also check if user stored it in secrets
+    secret_key = f"JSONBIN_{name.upper()}_ID"
+    stored = st.secrets.get(secret_key, "")
+    if stored:
+        st.session_state[sid] = stored
+        return stored
     # Create new bin
     try:
         r = requests.post(
             f"{JSONBIN_BASE}/b",
-            headers={**headers, "X-Bin-Name": f"family_budget_{name}", "X-Bin-Private": "true"},
-            json={"_name": f"family_budget_{name}", "data": []},
-            timeout=10
+            headers={**_headers(), "X-Bin-Name": f"familybudget_{name}", "X-Bin-Private": "true"},
+            json={"data": []},
+            timeout=15
         )
-        if r.status_code == 200:
-            bin_id = r.json()["metadata"]["id"]
-            st.session_state[meta_key] = bin_id
-            return bin_id
+        if r.ok:
+            bid = r.json()["metadata"]["id"]
+            st.session_state[sid] = bid
+            # Show user the ID to save in secrets
+            st.info(f"📌 **שמור ב-Streamlit Secrets:**\n`{secret_key} = \"{bid}\"`")
+            return bid
     except Exception as e:
-        st.error(f"שגיאה ביצירת אחסון: {e}")
+        st.error(f"שגיאת JSONBin: {e}")
     return None
 
-def _read_bin(name: str) -> list:
-    bin_id = _get_bin_id(name)
-    if not bin_id: return []
+def _read(name: str) -> list:
+    bid = _get_or_create_bin(name)
+    if not bid: return []
     try:
-        r = requests.get(f"{JSONBIN_BASE}/b/{bin_id}/latest",
-                         headers=_get_headers(), timeout=10)
-        if r.status_code == 200:
-            rec = r.json().get("record", {})
-            return rec.get("data", [])
+        r = requests.get(f"{JSONBIN_BASE}/b/{bid}/latest", headers=_headers(), timeout=15)
+        if r.ok:
+            return r.json().get("record", {}).get("data", [])
     except Exception:
         pass
     return []
 
-def _write_bin(name: str, data: list):
-    bin_id = _get_bin_id(name)
-    if not bin_id: return
+def _write(name: str, data: list):
+    bid = _get_or_create_bin(name)
+    if not bid: return
     try:
-        requests.put(
-            f"{JSONBIN_BASE}/b/{bin_id}",
-            headers=_get_headers(),
-            json={"_name": f"family_budget_{name}", "data": data},
-            timeout=10
-        )
+        r = requests.put(f"{JSONBIN_BASE}/b/{bid}", headers=_headers(),
+                         json={"data": data}, timeout=15)
+        if not r.ok:
+            st.error(f"שגיאת שמירה ({name}): {r.status_code}")
     except Exception as e:
         st.error(f"שגיאת שמירה: {e}")
 
-def get_investments():
-    return _read_bin("investments")
-
-def add_investment(inv: dict):
+def get_investments():    return _read("investments")
+def add_investment(inv):
     inv["id"] = str(uuid.uuid4()); inv["added_date"] = datetime.now().isoformat()
-    data = get_investments(); data.append(inv); _write_bin("investments", data)
-
-def remove_investment(inv_id: str):
-    _write_bin("investments", [i for i in get_investments() if i["id"] != inv_id])
+    d = _read("investments"); d.append(inv); _write("investments", d)
+def remove_investment(iid):
+    _write("investments", [i for i in _read("investments") if i["id"] != iid])
 
 def get_income(year=None, month=None):
-    e = _read_bin("income")
+    e = _read("income")
     if year:  e = [x for x in e if x.get("year")  == year]
     if month: e = [x for x in e if x.get("month") == month]
     return e
-
-def add_income(entry: dict):
+def add_income(entry):
     entry["id"] = str(uuid.uuid4())
-    data = _read_bin("income"); data.append(entry); _write_bin("income", data)
-
-def remove_income(eid: str):
-    _write_bin("income", [e for e in _read_bin("income") if e.get("id") != eid])
+    d = _read("income"); d.append(entry); _write("income", d)
+def remove_income(eid):
+    _write("income", [e for e in _read("income") if e.get("id") != eid])
 
 def get_expenses(year=None, month=None):
-    e = _read_bin("expenses")
+    e = _read("expenses")
     if year:  e = [x for x in e if x.get("year")  == year]
     if month: e = [x for x in e if x.get("month") == month]
     return e
-
-def add_expense(entry: dict):
+def add_expense(entry):
     entry["id"] = str(uuid.uuid4())
-    data = _read_bin("expenses"); data.append(entry); _write_bin("expenses", data)
-
-def remove_expense(eid: str):
-    _write_bin("expenses", [e for e in _read_bin("expenses") if e.get("id") != eid])
+    d = _read("expenses"); d.append(entry); _write("expenses", d)
+def remove_expense(eid):
+    _write("expenses", [e for e in _read("expenses") if e.get("id") != eid])
 
 def get_all_years_months():
     ym = set()
-    for e in _read_bin("income") + _read_bin("expenses"):
+    for e in _read("income") + _read("expenses"):
         if "year" in e and "month" in e: ym.add((e["year"], e["month"]))
     return sorted(ym, reverse=True)
 
-def is_price_fresh(key: str) -> bool:
-    for r in _read_bin("prices_cache"):
+def is_price_fresh(key):
+    for r in _read("prices_cache"):
         if r.get("key") == key:
             return r.get("date") == datetime.now().strftime("%Y-%m-%d")
     return False
-
-def get_cached_price(key: str):
-    for r in _read_bin("prices_cache"):
+def get_cached_price(key):
+    for r in _read("prices_cache"):
         if r.get("key") == key: return r
     return None
-
-def set_cached_price(key: str, price_data: dict):
-    cache = [r for r in _read_bin("prices_cache") if r.get("key") != key]
+def set_cached_price(key, price_data):
+    cache = [r for r in _read("prices_cache") if r.get("key") != key]
     price_data["key"] = key; cache.append(price_data)
-    _write_bin("prices_cache", cache)
-
+    _write("prices_cache", cache)
 # ── SHARED: Price fetcher ─────────────────────────────────────────────────────
 def get_usd_ils_rate() -> float:
     try:
@@ -270,7 +247,7 @@ with tab1:
     save_rate = (saving/total_inc*100) if total_inc else 0
 
     c1,c2 = st.columns(2)
-    c1.metric("💼 שווי תיק", f"₪{total_val:,.0f}", f"₪{gain:,.0f} ({gain_pct:+.1f}%)")
+    c1.metric("💼 שווי תיק", f"₪{total_val:,.0f}", f"₪{gain:,.0f} ({gain_pct:+.1f}%)", delta_color="normal")
     c2.metric("💰 חיסכון חודשי", f"₪{saving:,.0f}", f"שיעור: {save_rate:.1f}%")
     c3,c4 = st.columns(2)
     c3.metric("📥 הכנסות", f"₪{total_inc:,.0f}")
@@ -429,11 +406,20 @@ with tab4:
             gp2=(gain2/cost*100) if cost else 0
             tv2+=val; tc2+=cost
             sym="$" if ccy=="USD" else "₪"
+            # For USD assets show both USD price and ILS value
+            if ccy=="USD":
+                price_str=f"${cur:,.3f} (₪{cur*usd2:,.2f})"
+                val_str=f"${cur*units:,.2f} / ₪{val:,.0f}"
+            else:
+                price_str=f"₪{cur:,.3f}"
+                val_str=f"₪{val:,.0f}"
+            gain_arrow = "▲" if gain2 >= 0 else "▼"
             rows.append({"שם":inv.get("name") or inv.get("ticker") or "—",
-                         "מחיר":f"{sym}{cur:,.3f}","שווי":f"₪{val:,.0f}",
-                         "רווח":f"₪{gain2:,.0f} ({gp2:+.1f}%)","_id":inv["id"]})
+                         "מחיר":price_str,"שווי":val_str,
+                         "רווח/הפסד":f"{gain_arrow} {sym}{abs(gain2/mul if ccy=='USD' else gain2):,.2f} ({gp2:+.1f}%)",
+                         "_id":inv["id"]})
         tg2=tv2-tc2; tgp2=(tg2/tc2*100) if tc2 else 0
-        st.metric("שווי תיק כולל", f"₪{tv2:,.0f}", f"₪{tg2:,.0f} ({tgp2:+.1f}%)")
+        st.metric("שווי תיק כולל", f"₪{tv2:,.0f}", f"₪{tg2:,.0f} ({tgp2:+.1f}%)", delta_color="normal")
         df_inv = pd.DataFrame(rows).drop(columns=["_id"])
         st.dataframe(df_inv, use_container_width=True, hide_index=True)
         st.markdown("**🗑️ מחק נכס:**")
