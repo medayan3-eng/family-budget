@@ -210,16 +210,6 @@ st.title("💰 תוכנית חיסכון משפחתית")
 st.caption(f"לוח בקרה | {MONTH_NAMES[month]} {year}")
 
 
-n1,n2,n3,n4 = st.columns(4)
-with n1:
-    if st.button("📈 השקעות", use_container_width=True): st.switch_page("pages/1_Investments.py")
-with n2:
-    if st.button("💵 הכנסות",  use_container_width=True): st.switch_page("pages/2_Income.py")
-with n3:
-    if st.button("🧾 הוצאות",  use_container_width=True): st.switch_page("pages/3_Expenses.py")
-with n4:
-    if st.button("📊 ניתוח",   use_container_width=True): st.switch_page("pages/4_Analysis.py")
-st.divider()
 
 
 with st.spinner("טוען..."):
