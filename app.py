@@ -15,7 +15,7 @@ INCOME_CATEGORIES = ["💼 משכורת","🤱 דמי לידה / ביטוח לא
 ASSET_TYPES = {"us_stock":"📈 מניה אמריקאית","tase_stock":"🇮🇱 מניה ישראלית","israeli_fund":"📊 קרן נאמנות","cash_ils":"💵 מזומן שקלים","cash_usd":"💵 מזומן דולרים","manual":"✏️ ידני"}
 MONTH_NAMES = {1:"ינואר",2:"פברואר",3:"מרץ",4:"אפריל",5:"מאי",6:"יוני",7:"יולי",8:"אוגוסט",9:"ספטמבר",10:"אוקטובר",11:"נובמבר",12:"דצמבר"}
 
-# ── SHARED: DataManager (JSONBin.io) ─────────────────────────────────────────
+# ── SHARED: DataManager (JSONBin.io — single bin) ───────────────────────────
 import json, uuid, os, requests
 from datetime import datetime
 import streamlit as st
@@ -23,7 +23,7 @@ import streamlit as st
 JSONBIN_BASE = "https://api.jsonbin.io/v3"
 
 def _key():
-    return st.secrets.get("JSONBIN_KEY", os.environ.get("JSONBIN_KEY",""))
+    return st.secrets.get("JSONBIN_KEY", os.environ.get("JSONBIN_KEY", ""))
 
 def _headers():
     return {
@@ -32,105 +32,124 @@ def _headers():
         "X-Bin-Versioning": "false",
     }
 
-def _get_or_create_bin(name: str) -> str:
-    # bin_id stored in session_state across reruns within same session
-    sid = f"bid_{name}"
-    if sid in st.session_state and st.session_state[sid]:
-        return st.session_state[sid]
-    # Also check if user stored it in secrets
-    secret_key = f"JSONBIN_{name.upper()}_ID"
-    stored = st.secrets.get(secret_key, "")
-    if stored:
-        st.session_state[sid] = stored
-        return stored
-    # Create new bin
+def _get_bin_id() -> str:
+    """Single bin ID for all data. Read from secrets or create once."""
+    # 1. Check secrets
+    bid = st.secrets.get("JSONBIN_BIN_ID", "")
+    if bid:
+        return bid
+    # 2. Check session state
+    if "main_bin_id" in st.session_state:
+        return st.session_state["main_bin_id"]
+    # 3. Create new bin
     try:
         r = requests.post(
             f"{JSONBIN_BASE}/b",
-            headers={**_headers(), "X-Bin-Name": f"familybudget_{name}", "X-Bin-Private": "true"},
-            json={"data": []},
-            timeout=15
+            headers={**_headers(), "X-Bin-Name": "family_budget_main", "X-Bin-Private": "true"},
+            json={"investments": [], "income": [], "expenses": [], "prices_cache": []},
+            timeout=15,
         )
         if r.ok:
             bid = r.json()["metadata"]["id"]
-            st.session_state[sid] = bid
-            # Show user the ID to save in secrets
-            st.info(f"📌 **שמור ב-Streamlit Secrets:**\n`{secret_key} = \"{bid}\"`")
+            st.session_state["main_bin_id"] = bid
+            st.warning(f"⚠️ **הוסף ל-Streamlit Secrets:**\n```\nJSONBIN_BIN_ID = \"{bid}\"\n```")
             return bid
+        else:
+            st.error(f"שגיאת יצירת bin: {r.status_code} — {r.text[:200]}")
     except Exception as e:
-        st.error(f"שגיאת JSONBin: {e}")
+        st.error(f"שגיאת חיבור: {e}")
     return None
 
-def _read(name: str) -> list:
-    bid = _get_or_create_bin(name)
-    if not bid: return []
+def _load_all() -> dict:
+    bid = _get_bin_id()
+    if not bid:
+        return {"investments": [], "income": [], "expenses": [], "prices_cache": []}
     try:
         r = requests.get(f"{JSONBIN_BASE}/b/{bid}/latest", headers=_headers(), timeout=15)
         if r.ok:
-            return r.json().get("record", {}).get("data", [])
-    except Exception:
-        pass
-    return []
+            rec = r.json().get("record", {})
+            for k in ["investments","income","expenses","prices_cache"]:
+                rec.setdefault(k, [])
+            return rec
+        else:
+            st.error(f"שגיאת טעינה: {r.status_code}")
+    except Exception as e:
+        st.error(f"שגיאת חיבור: {e}")
+    return {"investments": [], "income": [], "expenses": [], "prices_cache": []}
 
-def _write(name: str, data: list):
-    bid = _get_or_create_bin(name)
-    if not bid: return
+def _save_all(data: dict):
+    bid = _get_bin_id()
+    if not bid:
+        return
     try:
-        r = requests.put(f"{JSONBIN_BASE}/b/{bid}", headers=_headers(),
-                         json={"data": data}, timeout=15)
+        r = requests.put(f"{JSONBIN_BASE}/b/{bid}", headers=_headers(), json=data, timeout=15)
         if not r.ok:
-            st.error(f"שגיאת שמירה ({name}): {r.status_code}")
+            st.error(f"שגיאת שמירה: {r.status_code} — {r.text[:200]}")
     except Exception as e:
         st.error(f"שגיאת שמירה: {e}")
 
-def get_investments():    return _read("investments")
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def get_investments():
+    return _load_all().get("investments", [])
+
 def add_investment(inv):
     inv["id"] = str(uuid.uuid4()); inv["added_date"] = datetime.now().isoformat()
-    d = _read("investments"); d.append(inv); _write("investments", d)
+    d = _load_all(); d["investments"].append(inv); _save_all(d)
+
 def remove_investment(iid):
-    _write("investments", [i for i in _read("investments") if i["id"] != iid])
+    d = _load_all(); d["investments"] = [i for i in d["investments"] if i["id"] != iid]; _save_all(d)
 
 def get_income(year=None, month=None):
-    e = _read("income")
+    e = _load_all().get("income", [])
     if year:  e = [x for x in e if x.get("year")  == year]
     if month: e = [x for x in e if x.get("month") == month]
     return e
+
 def add_income(entry):
     entry["id"] = str(uuid.uuid4())
-    d = _read("income"); d.append(entry); _write("income", d)
+    d = _load_all(); d["income"].append(entry); _save_all(d)
+
 def remove_income(eid):
-    _write("income", [e for e in _read("income") if e.get("id") != eid])
+    d = _load_all(); d["income"] = [e for e in d["income"] if e.get("id") != eid]; _save_all(d)
 
 def get_expenses(year=None, month=None):
-    e = _read("expenses")
+    e = _load_all().get("expenses", [])
     if year:  e = [x for x in e if x.get("year")  == year]
     if month: e = [x for x in e if x.get("month") == month]
     return e
+
 def add_expense(entry):
     entry["id"] = str(uuid.uuid4())
-    d = _read("expenses"); d.append(entry); _write("expenses", d)
+    d = _load_all(); d["expenses"].append(entry); _save_all(d)
+
 def remove_expense(eid):
-    _write("expenses", [e for e in _read("expenses") if e.get("id") != eid])
+    d = _load_all(); d["expenses"] = [e for e in d["expenses"] if e.get("id") != eid]; _save_all(d)
 
 def get_all_years_months():
+    d = _load_all()
     ym = set()
-    for e in _read("income") + _read("expenses"):
+    for e in d.get("income",[]) + d.get("expenses",[]):
         if "year" in e and "month" in e: ym.add((e["year"], e["month"]))
     return sorted(ym, reverse=True)
 
 def is_price_fresh(key):
-    for r in _read("prices_cache"):
+    for r in _load_all().get("prices_cache",[]):
         if r.get("key") == key:
             return r.get("date") == datetime.now().strftime("%Y-%m-%d")
     return False
+
 def get_cached_price(key):
-    for r in _read("prices_cache"):
+    for r in _load_all().get("prices_cache",[]):
         if r.get("key") == key: return r
     return None
+
 def set_cached_price(key, price_data):
-    cache = [r for r in _read("prices_cache") if r.get("key") != key]
-    price_data["key"] = key; cache.append(price_data)
-    _write("prices_cache", cache)
+    d = _load_all()
+    d["prices_cache"] = [r for r in d["prices_cache"] if r.get("key") != key]
+    price_data["key"] = key
+    d["prices_cache"].append(price_data)
+    _save_all(d)
 # ── SHARED: Price fetcher ─────────────────────────────────────────────────────
 def get_usd_ils_rate() -> float:
     try:
