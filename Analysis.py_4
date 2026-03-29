@@ -177,8 +177,6 @@ html,body,[class*="css"]{direction:rtl;}
 .stApp,.block-container,section[data-testid="stSidebar"]{direction:rtl;}
 input,textarea,select{direction:rtl!important;text-align:right!important;}
 #MainMenu,footer{visibility:hidden;}
-section[data-testid="stSidebar"]{display:none!important;}
-[data-testid="collapsedControl"]{display:none!important;}
 </style>"""
 
 import streamlit as st
