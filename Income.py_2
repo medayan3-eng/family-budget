@@ -191,16 +191,6 @@ st.markdown(RTL, unsafe_allow_html=True)
 st.title("💵 ניהול הכנסות")
 
 
-n1,n2,n3,n4 = st.columns(4)
-with n1:
-    if st.button("🏠 ראשי",    use_container_width=True): st.switch_page("app.py")
-with n2:
-    if st.button("📈 השקעות",  use_container_width=True): st.switch_page("pages/1_Investments.py")
-with n3:
-    if st.button("🧾 הוצאות",  use_container_width=True): st.switch_page("pages/3_Expenses.py")
-with n4:
-    if st.button("📊 ניתוח",   use_container_width=True): st.switch_page("pages/4_Analysis.py")
-st.divider()
 
 
 
