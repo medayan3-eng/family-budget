@@ -26,7 +26,11 @@ def _key():
     return st.secrets.get("JSONBIN_KEY", os.environ.get("JSONBIN_KEY",""))
 
 def _headers():
-    return {"X-Master-Key": _key(), "Content-Type": "application/json"}
+    return {
+        "X-Master-Key": _key(),
+        "Content-Type": "application/json",
+        "X-Bin-Versioning": "false",
+    }
 
 def _get_or_create_bin(name: str) -> str:
     # bin_id stored in session_state across reruns within same session
@@ -434,36 +438,50 @@ with tab4:
     st.markdown("**➕ הוספת נכס:**")
     with st.form("add_inv", clear_on_submit=True):
         at = st.selectbox("סוג", list(ASSET_TYPES.keys()), format_func=lambda x:ASSET_TYPES[x])
-        nm = st.text_input("שם לתצוגה", placeholder="למשל: SPY ETF")
+        is_cash = at in ("cash_ils","cash_usd")
+        tk=""; fi=""; mp=0.0; mc="ILS"; un=1; pp=0.0
+
         if at in ("us_stock","tase_stock"):
-            tk = st.text_input("טיקר", placeholder="AAPL / TEVA")
-            fi = ""; mp=0.0; mc="ILS"
+            tk = st.text_input("טיקר", placeholder="AAPL, SPY, TEVA")
         elif at == "israeli_fund":
-            fi = st.text_input("מספר קרן (7 ספרות)")
-            tk=""; mp=0.0; mc="ILS"
-        elif at in ("cash_ils","cash_usd"):
-            sym = "₪" if at=="cash_ils" else "$"
-            mp = st.number_input(f"סכום מזומן ({sym})", min_value=0.0, step=100.0, format="%.2f")
-            mc = "ILS" if at=="cash_ils" else "USD"
-            tk=""; fi=""; un=1.0; pp=mp
-        else:
+            fi = st.text_input("מספר קרן (7 ספרות)", placeholder="5113335")
+        elif at == "cash_ils":
+            mp = st.number_input("סכום מזומן (₪)", min_value=0.0, step=100.0, format="%.0f")
+            mc = "ILS"
+        elif at == "cash_usd":
+            mp = st.number_input("סכום מזומן ($)", min_value=0.0, step=100.0, format="%.0f")
+            mc = "USD"
+        else:  # manual
             mp = st.number_input("מחיר נוכחי", min_value=0.0, step=0.01)
             mc = st.selectbox("מטבע", ["ILS","USD"])
-            tk=""; fi=""
-        is_cash = at in ("cash_ils","cash_usd")
+
         if not is_cash:
-            un = st.number_input("כמות יחידות", min_value=0.0, step=0.001, format="%.3f")
-            pp = st.number_input("מחיר קנייה ממוצע", min_value=0.0, step=0.0001, format="%.4f")
+            un  = st.number_input("כמות מניות (שלמות)", min_value=0, step=1, format="%d")
+            pp  = st.number_input("מחיר קנייה ממוצע ($)" if at=="us_stock" else "מחיר קנייה ממוצע",
+                                  min_value=0.0, step=0.01, format="%.2f")
+
         if st.form_submit_button("הוסף ✅", type="primary", use_container_width=True):
-            if is_cash and mp <= 0: st.error("הכנס סכום מזומן חיובי")
-            elif not is_cash and un <= 0: st.error("כמות חיובית בלבד")
+            if is_cash and mp <= 0:
+                st.error("הכנס סכום חיובי")
+            elif not is_cash and un <= 0:
+                st.error("הכנס כמות חיובית")
+            elif at in ("us_stock","tase_stock") and not tk.strip():
+                st.error("הכנס טיקר")
             else:
-                new_inv={"type":at,"name":nm or ("מזומן שקלים" if at=="cash_ils" else "מזומן דולרים"),"units":1.0,"purchase_price":mp}
-                if at in ("us_stock","tase_stock"): new_inv["ticker"]=tk.upper().strip()
-                elif at=="israeli_fund": new_inv["fund_id"]=fi.strip()
-                else: new_inv["manual_price"]=mp; new_inv["currency"]=mc
+                nm = tk.upper().strip() if at in ("us_stock","tase_stock") else                      fi.strip() if at=="israeli_fund" else                      "מזומן שקלים" if at=="cash_ils" else                      "מזומן דולרים" if at=="cash_usd" else "ידני"
+                new_inv = {"type":at, "name":nm, "units":float(un), "purchase_price":float(pp)}
+                if at in ("us_stock","tase_stock"): new_inv["ticker"] = tk.upper().strip()
+                elif at == "israeli_fund":           new_inv["fund_id"] = fi.strip()
+                elif is_cash:
+                    new_inv["manual_price"] = mp
+                    new_inv["currency"]     = mc
+                    new_inv["units"]        = 1.0
+                    new_inv["purchase_price"] = mp
+                else:
+                    new_inv["manual_price"] = mp
+                    new_inv["currency"]     = mc
                 add_investment(new_inv)
-                st.success("נוסף!"); st.rerun()
+                st.success(f"נוסף: {nm}"); st.rerun()
 
     st.divider()
     st.markdown("**✏️ עדכון מחיר ידני:**")
