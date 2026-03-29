@@ -183,122 +183,326 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, date
 
-st.set_page_config(page_title="תוכנית חיסכון משפחתית", page_icon="💰", layout="wide")
-st.markdown(RTL, unsafe_allow_html=True)
+st.set_page_config(page_title="תוכנית חיסכון משפחתית", page_icon="💰", layout="centered")
+
+st.markdown("""<style>
+html,body,[class*="css"]{direction:rtl;}
+.stApp,.block-container{direction:rtl;}
+input,textarea,select{direction:rtl!important;text-align:right!important;}
+#MainMenu,footer,header{visibility:hidden;}
+section[data-testid="stSidebar"]{display:none!important;}
+[data-testid="collapsedControl"]{display:none!important;}
+.stTabs [data-baseweb="tab-list"]{gap:4px;flex-wrap:wrap;}
+.stTabs [data-baseweb="tab"]{font-size:1rem;padding:8px 12px;border-radius:8px;}
+</style>""", unsafe_allow_html=True)
 
 now = datetime.now()
-year, month = now.year, now.month
-
-with st.sidebar:
-    st.header("📅 בחר חודש")
-    all_ym = get_all_years_months()
-    if (year, month) not in all_ym:
-        all_ym.insert(0, (year, month))
-    ym_labels = [f"{MONTH_NAMES[m]} {y}" for y,m in all_ym]
-    default_lbl = f"{MONTH_NAMES[month]} {year}"
-    idx = ym_labels.index(default_lbl) if default_lbl in ym_labels else 0
-    sel = st.selectbox("חודש", ym_labels, index=idx, label_visibility="collapsed")
-    sy, sm = all_ym[ym_labels.index(sel)]
-    st.divider()
-    st.info("📌 מחירים מתעדכנים פעם ביום")
+MONTH_NAMES_LIST = list(MONTH_NAMES.values())
 
 st.title("💰 תוכנית חיסכון משפחתית")
-st.caption(f"לוח בקרה | {MONTH_NAMES[month]} {year}")
 
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏠 סיכום", "💵 הכנסות", "🧾 הוצאות", "📈 השקעות", "📊 ניתוח"])
 
+# ═══════════════════════════════════════════════════════════
+# TAB 1 – DASHBOARD
+# ═══════════════════════════════════════════════════════════
+with tab1:
+    cy, cm = st.columns(2)
+    with cy: sel_year  = st.selectbox("שנה", list(range(now.year, now.year-4, -1)), key="t1y")
+    with cm: sel_month = st.selectbox("חודש", list(range(1,13)), format_func=lambda m:MONTH_NAMES[m], index=now.month-1, key="t1m")
 
+    with st.spinner("טוען..."):
+        investments  = get_investments()
+        usd_ils      = get_usd_ils_rate()
+        prices       = fetch_all_prices(investments)
+        income_list  = get_income(year=sel_year, month=sel_month)
+        expense_list = get_expenses(year=sel_year, month=sel_month)
 
-with st.spinner("טוען..."):
-    investments = get_investments()
-    usd_ils = get_usd_ils_rate()
-    prices = fetch_all_prices(investments)
-    income_list = get_income(year=sy, month=sm)
-    expense_list = get_expenses(year=sy, month=sm)
+    total_val = total_cost = 0.0
+    for inv in investments:
+        pd_ = prices.get(inv["id"])
+        if not pd_: continue
+        mul = usd_ils if pd_.get("currency")=="USD" else 1.0
+        total_val  += float(pd_["price"]) * float(inv.get("units",0)) * mul
+        total_cost += float(inv.get("purchase_price",0)) * float(inv.get("units",0)) * mul
+    gain = total_val - total_cost
+    gain_pct = (gain/total_cost*100) if total_cost else 0
 
-total_val = total_cost = 0.0
-for inv in investments:
-    pd_ = prices.get(inv["id"])
-    if not pd_: continue
-    units = float(inv.get("units",0)); mul = usd_ils if pd_.get("currency")=="USD" else 1.0
-    total_val  += float(pd_["price"]) * units * mul
-    total_cost += float(inv.get("purchase_price",0)) * units * mul
-gain = total_val - total_cost
-gain_pct = (gain/total_cost*100) if total_cost else 0
+    total_inc = sum(e["amount"] for e in income_list)
+    total_exp = sum(e["amount"] for e in expense_list)
+    saving    = total_inc - total_exp
+    save_rate = (saving/total_inc*100) if total_inc else 0
 
-total_inc = sum(e["amount"] for e in income_list)
-total_exp = sum(e["amount"] for e in expense_list)
-saving = total_inc - total_exp
-save_rate = (saving/total_inc*100) if total_inc else 0
+    c1,c2 = st.columns(2)
+    c1.metric("💼 שווי תיק", f"₪{total_val:,.0f}", f"₪{gain:,.0f} ({gain_pct:+.1f}%)")
+    c2.metric("💰 חיסכון חודשי", f"₪{saving:,.0f}", f"שיעור: {save_rate:.1f}%")
+    c3,c4 = st.columns(2)
+    c3.metric("📥 הכנסות", f"₪{total_inc:,.0f}")
+    c4.metric("📤 הוצאות", f"₪{total_exp:,.0f}")
+    st.divider()
 
-c1,c2,c3,c4 = st.columns(4)
-c1.metric("💼 שווי תיק", f"₪{total_val:,.0f}", f"רווח: ₪{gain:,.0f} ({gain_pct:+.1f}%)")
-c2.metric("📥 הכנסות", f"₪{total_inc:,.0f}")
-c3.metric("📤 הוצאות", f"₪{total_exp:,.0f}")
-c4.metric("💰 חיסכון", f"₪{saving:,.0f}", f"שיעור: {save_rate:.1f}%")
-
-st.divider()
-col_l, col_r = st.columns(2)
-
-with col_l:
-    st.subheader("📊 הרכב תיק")
-    if investments and prices:
-        rows = []
-        for inv in investments:
-            pd_ = prices.get(inv["id"])
-            if not pd_: continue
-            mul = usd_ils if pd_.get("currency")=="USD" else 1.0
-            val = float(pd_["price"]) * float(inv.get("units",0)) * mul
-            rows.append({"שם": inv.get("name") or inv.get("ticker") or "—", "שווי": val})
-        if rows:
-            fig = px.pie(pd.DataFrame(rows), values="שווי", names="שם", hole=0.45,
-                         color_discrete_sequence=px.colors.sequential.Blues_r)
-            fig.update_traces(textinfo="percent+label")
-            fig.update_layout(height=300, margin=dict(t=10,b=10,l=10,r=10))
-            st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("הוסף השקעות בדף 'השקעות'")
-
-with col_r:
-    st.subheader("🧾 הוצאות לפי קטגוריה")
     if expense_list:
         cat_t = {}
         for e in expense_list: cat_t[e.get("category","אחר")] = cat_t.get(e.get("category","אחר"),0)+e["amount"]
-        df = pd.DataFrame(sorted(cat_t.items(), key=lambda x:x[1], reverse=True), columns=["קטגוריה","סכום"])
-        fig2 = px.bar(df, y="קטגוריה", x="סכום", orientation="h", color="סכום",
-                      color_continuous_scale="Blues", text="סכום")
-        fig2.update_traces(texttemplate="₪%{text:,.0f}", textposition="outside")
-        fig2.update_layout(height=300, coloraxis_showscale=False, margin=dict(t=10,b=10,r=80),
-                           yaxis={"categoryorder":"total ascending"})
-        st.plotly_chart(fig2, use_container_width=True)
+        df_cat = pd.DataFrame(sorted(cat_t.items(),key=lambda x:x[1],reverse=True),columns=["קטגוריה","סכום"])
+        fig = px.bar(df_cat, y="קטגוריה", x="סכום", orientation="h",
+                     color="סכום", color_continuous_scale="Blues", text="סכום",
+                     title="הוצאות לפי קטגוריה")
+        fig.update_traces(texttemplate="₪%{text:,.0f}", textposition="outside")
+        fig.update_layout(height=320, coloraxis_showscale=False,
+                          margin=dict(t=40,b=10,r=80), yaxis={"categoryorder":"total ascending"})
+        st.plotly_chart(fig, use_container_width=True)
+
+    if income_list or expense_list:
+        st.subheader("📋 פעולות אחרונות")
+        recent = []
+        for e in expense_list: recent.append({"סוג":"📤 הוצאה","תיאור":e.get("description",""),"קטגוריה":e.get("category",""),"סכום":f"₪{e['amount']:,.0f}","תאריך":e.get("date","")})
+        for e in income_list:  recent.append({"סוג":"📥 הכנסה","תיאור":e.get("description",""),"קטגוריה":e.get("category",""),"סכום":f"₪{e['amount']:,.0f}","תאריך":e.get("date","")})
+        df_r = pd.DataFrame(recent).sort_values("תאריך",ascending=False).head(10).reset_index(drop=True)
+        st.dataframe(df_r, use_container_width=True, hide_index=True)
+
+# ═══════════════════════════════════════════════════════════
+# TAB 2 – INCOME
+# ═══════════════════════════════════════════════════════════
+with tab2:
+    st.subheader("💵 ניהול הכנסות")
+    cy2, cm2 = st.columns(2)
+    with cy2: iy = st.selectbox("שנה", list(range(now.year, now.year-4,-1)), key="t2y")
+    with cm2: im = st.selectbox("חודש", list(range(1,13)), format_func=lambda m:MONTH_NAMES[m], index=now.month-1, key="t2m")
+
+    inc_entries = get_income(year=iy, month=im)
+    st.metric(f"סה\"כ הכנסות — {MONTH_NAMES[im]} {iy}", f"₪{sum(e['amount'] for e in inc_entries):,.0f}")
+
+    # Quick add buttons
+    st.markdown("**⚡ הוספה מהירה:**")
+    qa, qb = st.columns(2)
+    with qa:
+        if st.button("💼 משכורת שלי ₪13,500", use_container_width=True):
+            add_income({"description":"משכורת חודשית","amount":13500,"category":"💼 משכורת",
+                        "date":date(iy,im,1).strftime("%Y-%m-%d"),"year":iy,"month":im,"note":""})
+            st.success("נוסף ✅"); st.rerun()
+    with qb:
+        if st.button("💼 משכורת אישתי ₪16,000", use_container_width=True):
+            add_income({"description":"משכורת אישתי","amount":16000,"category":"💼 משכורת",
+                        "date":date(iy,im,1).strftime("%Y-%m-%d"),"year":iy,"month":im,"note":""})
+            st.success("נוסף ✅"); st.rerun()
+
+    st.markdown("**➕ הוספה ידנית:**")
+    with st.form("add_income", clear_on_submit=True):
+        i_desc   = st.text_input("תיאור", placeholder="למשל: דמי לידה ינואר")
+        i_amount = st.number_input("סכום (₪)", min_value=0.0, step=100.0, format="%.0f")
+        i_cat    = st.selectbox("קטגוריה", INCOME_CATEGORIES)
+        i_date   = st.date_input("תאריך", value=date(iy, im, 1))
+        if st.form_submit_button("הוסף הכנסה ✅", type="primary", use_container_width=True):
+            if i_amount > 0:
+                add_income({"description":i_desc,"amount":i_amount,"category":i_cat,
+                            "date":i_date.strftime("%Y-%m-%d"),"year":iy,"month":im,"note":""})
+                st.success(f"נוסף: ₪{i_amount:,.0f}"); st.rerun()
+            else:
+                st.error("הכנס סכום חיובי")
+
+    if inc_entries:
+        st.markdown("**📋 רשומות קיימות:**")
+        for e in sorted(inc_entries, key=lambda x:x.get("date",""), reverse=True):
+            col_a, col_b = st.columns([4,1])
+            with col_a: st.write(f"**{e.get('description','')}** — ₪{e['amount']:,.0f} | {e.get('category','')} | {e.get('date','')}")
+            with col_b:
+                if st.button("🗑️", key=f"di_{e['id']}"):
+                    remove_income(e["id"]); st.rerun()
+
+# ═══════════════════════════════════════════════════════════
+# TAB 3 – EXPENSES
+# ═══════════════════════════════════════════════════════════
+with tab3:
+    st.subheader("🧾 ניהול הוצאות")
+    cy3, cm3 = st.columns(2)
+    with cy3: ey = st.selectbox("שנה", list(range(now.year, now.year-4,-1)), key="t3y")
+    with cm3: em = st.selectbox("חודש", list(range(1,13)), format_func=lambda m:MONTH_NAMES[m], index=now.month-1, key="t3m")
+
+    exp_entries = get_expenses(year=ey, month=em)
+    total_e = sum(e["amount"] for e in exp_entries)
+    st.metric(f"סה\"כ הוצאות — {MONTH_NAMES[em]} {ey}", f"₪{total_e:,.0f}")
+
+    # Quick fixed expenses
+    st.markdown("**⚡ הוצאות קבועות מהירות:**")
+    qe1,qe2,qe3 = st.columns(3)
+    FIXED = [("🏠 שכר דירה","🏠 דיור","שכר דירה"),
+             ("⚡ חשמל","🏠 דיור","חשמל"),
+             ("💧 מים","🏠 דיור","מים")]
+    for col, (label,cat,sub) in zip([qe1,qe2,qe3], FIXED):
+        with col:
+            with st.expander(label):
+                qa = st.number_input("סכום:", min_value=0, step=50, key=f"qf_{label}")
+                if st.button("הוסף", key=f"qfb_{label}") and qa > 0:
+                    add_expense({"description":label,"amount":qa,"category":cat,"sub_category":sub,
+                                 "date":date(ey,em,1).strftime("%Y-%m-%d"),"year":ey,"month":em,"note":""})
+                    st.success("נוסף!"); st.rerun()
+
+    st.markdown("**➕ הוספת הוצאה:**")
+    with st.form("add_expense", clear_on_submit=True):
+        e_desc   = st.text_input("תיאור", placeholder="למשל: קניות שופרסל")
+        e_amount = st.number_input("סכום (₪)", min_value=0.0, step=10.0, format="%.0f")
+        e_cat    = st.selectbox("קטגוריה", list(EXPENSE_CATEGORIES.keys()))
+        e_subcat = st.selectbox("תת-קטגוריה", EXPENSE_CATEGORIES[e_cat])
+        e_date   = st.date_input("תאריך", value=date.today())
+        if st.form_submit_button("הוסף הוצאה ✅", type="primary", use_container_width=True):
+            if e_amount > 0:
+                add_expense({"description":e_desc,"amount":e_amount,"category":e_cat,
+                             "sub_category":e_subcat,"date":e_date.strftime("%Y-%m-%d"),
+                             "year":e_date.year,"month":e_date.month,"note":""})
+                st.success(f"נוסף: ₪{e_amount:,.0f}"); st.rerun()
+            else:
+                st.error("הכנס סכום חיובי")
+
+    if exp_entries:
+        st.markdown("**📋 רשומות קיימות:**")
+        cat_groups = {}
+        for e in exp_entries: cat_groups.setdefault(e.get("category","אחר"),[]).append(e)
+        for cat, ces in sorted(cat_groups.items(), key=lambda x:sum(e["amount"] for e in x[1]), reverse=True):
+            cat_sum = sum(e["amount"] for e in ces)
+            with st.expander(f"{cat} — ₪{cat_sum:,.0f}"):
+                for e in sorted(ces, key=lambda x:x.get("date",""), reverse=True):
+                    ca, cb = st.columns([4,1])
+                    with ca: st.write(f"**{e.get('description','')}** — ₪{e['amount']:,.0f} | {e.get('date','')}")
+                    with cb:
+                        if st.button("🗑️", key=f"de_{e['id']}"):
+                            remove_expense(e["id"]); st.rerun()
+
+# ═══════════════════════════════════════════════════════════
+# TAB 4 – INVESTMENTS
+# ═══════════════════════════════════════════════════════════
+with tab4:
+    st.subheader("📈 ניהול השקעות")
+    with st.spinner("מושך מחירים..."):
+        usd2 = get_usd_ils_rate()
+        invs = get_investments()
+        prc  = fetch_all_prices(invs)
+
+    st.info(f"שער דולר: ₪{usd2:.3f}")
+
+    if invs:
+        tv2 = tc2 = 0.0
+        rows = []
+        for inv in invs:
+            pd_ = prc.get(inv["id"])
+            units=float(inv.get("units",0)); avg=float(inv.get("purchase_price",0))
+            cur=float(pd_["price"]) if pd_ else 0.0
+            ccy=pd_.get("currency","ILS") if pd_ else "ILS"
+            mul=usd2 if ccy=="USD" else 1.0
+            val=cur*units*mul; cost=avg*units*mul; gain2=val-cost
+            gp2=(gain2/cost*100) if cost else 0
+            tv2+=val; tc2+=cost
+            sym="$" if ccy=="USD" else "₪"
+            rows.append({"שם":inv.get("name") or inv.get("ticker") or "—",
+                         "מחיר":f"{sym}{cur:,.3f}","שווי":f"₪{val:,.0f}",
+                         "רווח":f"₪{gain2:,.0f} ({gp2:+.1f}%)","_id":inv["id"]})
+        tg2=tv2-tc2; tgp2=(tg2/tc2*100) if tc2 else 0
+        st.metric("שווי תיק כולל", f"₪{tv2:,.0f}", f"₪{tg2:,.0f} ({tgp2:+.1f}%)")
+        df_inv = pd.DataFrame(rows).drop(columns=["_id"])
+        st.dataframe(df_inv, use_container_width=True, hide_index=True)
+        st.markdown("**🗑️ מחק נכס:**")
+        opts = {inv["id"]: inv.get("name") or inv.get("ticker") or "—" for inv in invs}
+        del_id = st.selectbox("בחר נכס למחיקה", list(opts.keys()), format_func=lambda x:opts[x])
+        if st.button("מחק נכס", type="secondary"):
+            remove_investment(del_id); st.success("נמחק!"); st.rerun()
     else:
-        st.info("הוסף הוצאות בדף 'הוצאות'")
+        st.info("עדיין אין נכסים בתיק.")
 
-all_ym2 = get_all_years_months()
-if len(all_ym2) > 1:
-    st.subheader("📈 היסטוריה")
-    rows2 = []
-    for y,m in sorted(all_ym2):
-        inc = sum(e["amount"] for e in get_income(year=y,month=m))
-        exp = sum(e["amount"] for e in get_expenses(year=y,month=m))
-        rows2.append({"חודש":f"{MONTH_NAMES[m][:3]} {y}","הכנסות":inc,"הוצאות":exp,"חיסכון":inc-exp})
-    dh = pd.DataFrame(rows2)
-    fig3 = go.Figure()
-    fig3.add_bar(x=dh["חודש"],y=dh["הכנסות"],name="הכנסות",marker_color="#3b82f6")
-    fig3.add_bar(x=dh["חודש"],y=dh["הוצאות"],name="הוצאות",marker_color="#ef4444")
-    fig3.add_scatter(x=dh["חודש"],y=dh["חיסכון"],name="חיסכון",mode="lines+markers",
-                     line=dict(color="#22c55e",width=2.5))
-    fig3.update_layout(barmode="group",height=300,legend=dict(orientation="h",y=1.1))
-    st.plotly_chart(fig3, use_container_width=True)
+    st.divider()
+    st.markdown("**➕ הוספת נכס:**")
+    with st.form("add_inv", clear_on_submit=True):
+        at = st.selectbox("סוג", list(ASSET_TYPES.keys()), format_func=lambda x:ASSET_TYPES[x])
+        nm = st.text_input("שם לתצוגה", placeholder="למשל: SPY ETF")
+        if at in ("us_stock","tase_stock"):
+            tk = st.text_input("טיקר", placeholder="AAPL / TEVA")
+            fi = ""; mp=0.0; mc="ILS"
+        elif at == "israeli_fund":
+            fi = st.text_input("מספר קרן (7 ספרות)")
+            tk=""; mp=0.0; mc="ILS"
+        else:
+            mp = st.number_input("מחיר נוכחי", min_value=0.0, step=0.01)
+            mc = st.selectbox("מטבע", ["ILS","USD"])
+            tk=""; fi=""
+        un = st.number_input("כמות יחידות", min_value=0.0, step=0.001, format="%.3f")
+        pp = st.number_input("מחיר קנייה ממוצע", min_value=0.0, step=0.0001, format="%.4f")
+        if st.form_submit_button("הוסף נכס ✅", type="primary", use_container_width=True):
+            if un <= 0: st.error("כמות חיובית בלבד")
+            else:
+                new_inv={"type":at,"name":nm,"units":un,"purchase_price":pp}
+                if at in ("us_stock","tase_stock"): new_inv["ticker"]=tk.upper().strip()
+                elif at=="israeli_fund": new_inv["fund_id"]=fi.strip()
+                else: new_inv["manual_price"]=mp; new_inv["currency"]=mc
+                add_investment(new_inv)
+                st.success("נוסף!"); st.rerun()
 
-st.subheader("📋 פעולות אחרונות")
-recent = []
-for e in expense_list: recent.append({"סוג":"📤","תיאור":e.get("description",""),"קטגוריה":e.get("category",""),"סכום":e["amount"],"תאריך":e.get("date","")})
-for e in income_list:  recent.append({"סוג":"📥","תיאור":e.get("description",""),"קטגוריה":e.get("category",""),"סכום":e["amount"],"תאריך":e.get("date","")})
-if recent:
-    df_r = pd.DataFrame(recent).sort_values("תאריך",ascending=False).head(15).reset_index(drop=True)
-    df_r["סכום"] = df_r["סכום"].apply(lambda x:f"₪{x:,.0f}")
-    st.dataframe(df_r, use_container_width=True, hide_index=True)
-else:
-    st.info("עדיין אין פעולות לחודש זה.")
+    st.divider()
+    st.markdown("**✏️ עדכון מחיר ידני:**")
+    invs2 = get_investments()
+    if invs2:
+        opts2={i["id"]:i.get("name") or i.get("ticker") or "—" for i in invs2}
+        uid=st.selectbox("נכס",list(opts2.keys()),format_func=lambda x:opts2[x],key="uid")
+        upx=st.number_input("מחיר",min_value=0.0,step=0.0001,format="%.4f",key="upx")
+        if st.button("עדכן מחיר"):
+            s=next(i for i in invs2 if i["id"]==uid)
+            k=s.get("ticker") or s.get("fund_id") or uid
+            set_cached_price(k,{"price":upx,"change":0,"change_pct":0,"currency":s.get("currency","ILS"),
+                                 "name":s.get("name",""),"source":"manual","date":datetime.now().strftime("%Y-%m-%d")})
+            st.success(f"עודכן ל-₪{upx:,.4f}"); st.rerun()
+
+# ═══════════════════════════════════════════════════════════
+# TAB 5 – ANALYSIS
+# ═══════════════════════════════════════════════════════════
+with tab5:
+    st.subheader("📊 ניתוח וסיכום")
+    all_ym = get_all_years_months()
+    if not all_ym:
+        st.info("אין עדיין נתונים לניתוח. הוסף הכנסות והוצאות תחילה.")
+    else:
+        hist = []
+        for y,m in sorted(all_ym):
+            inc=sum(e["amount"] for e in get_income(year=y,month=m))
+            exp=sum(e["amount"] for e in get_expenses(year=y,month=m))
+            sav=inc-exp
+            hist.append({"label":f"{MONTH_NAMES[m][:3]} {y}","הכנסות":inc,"הוצאות":exp,"חיסכון":sav,
+                          "שיעור חיסכון":round((sav/inc*100) if inc else 0,1)})
+        df_h=pd.DataFrame(hist)
+        c1,c2,c3 = st.columns(3)
+        c1.metric("סה\"כ הכנסות",  f"₪{df_h['הכנסות'].sum():,.0f}")
+        c2.metric("סה\"כ הוצאות",  f"₪{df_h['הוצאות'].sum():,.0f}")
+        c3.metric("שיעור חיסכון ממוצע", f"{df_h['שיעור חיסכון'].mean():.1f}%")
+
+        fig2=go.Figure()
+        fig2.add_bar(x=df_h["label"],y=df_h["הכנסות"],name="הכנסות",marker_color="#3b82f6")
+        fig2.add_bar(x=df_h["label"],y=df_h["הוצאות"],name="הוצאות",marker_color="#ef4444")
+        fig2.add_scatter(x=df_h["label"],y=df_h["חיסכון"],name="חיסכון",
+                         mode="lines+markers",line=dict(color="#22c55e",width=2))
+        fig2.update_layout(barmode="group",height=320,legend=dict(orientation="h",y=1.1))
+        st.plotly_chart(fig2, use_container_width=True)
+
+        fig3=px.area(df_h,x="label",y="שיעור חיסכון",color_discrete_sequence=["#22c55e"],
+                     title="שיעור חיסכון %")
+        fig3.add_hline(y=20,line_dash="dash",line_color="#f59e0b",annotation_text="יעד 20%")
+        fig3.update_layout(height=220)
+        st.plotly_chart(fig3, use_container_width=True)
+
+        all_exp2=get_expenses()
+        if all_exp2:
+            ce=pd.DataFrame([{"קטגוריה":e.get("category","אחר"),"סכום":e["amount"]} for e in all_exp2])
+            ct=ce.groupby("קטגוריה")["סכום"].sum().reset_index().sort_values("סכום",ascending=False)
+            st.markdown(f"**📌 קטגוריה גדולה ביותר:** {ct.iloc[0]['קטגוריה']} — ₪{ct.iloc[0]['סכום']:,.0f}")
+
+        st.divider()
+        st.markdown("**📥 ייצוא נתונים:**")
+        xa,xb=st.columns(2)
+        with xa:
+            all_exp3=get_expenses()
+            if all_exp3:
+                csv=pd.DataFrame(all_exp3).drop(columns=["id"],errors="ignore").to_csv(index=False).encode("utf-8-sig")
+                st.download_button("⬇️ הוצאות CSV",csv,file_name="expenses.csv",mime="text/csv")
+        with xb:
+            all_inc3=get_income()
+            if all_inc3:
+                csv2=pd.DataFrame(all_inc3).drop(columns=["id"],errors="ignore").to_csv(index=False).encode("utf-8-sig")
+                st.download_button("⬇️ הכנסות CSV",csv2,file_name="income.csv",mime="text/csv")
